@@ -1,0 +1,93 @@
+@use '@angular/material' as mat;
+
+// Define tus paletas personalizadas basadas en tus variables CSS
+$custom-primary: mat.define-palette((
+    50: #f7f9f7,
+    100: #C6EDC3,  // --color-tea-green
+    200: #A7DCA5,  // --color-celadon
+    300: #90CF8E,  // --color-pistachio
+    400: #80c57c,
+    500: #70bb6a,
+    600: #60b158,
+    700: #509748,
+    800: #407d38,
+    900: #306328,
+    contrast: (
+        50: rgba(0,0,0,0.87),
+        100: rgba(0,0,0,0.87),
+        200: rgba(0,0,0,0.87),
+        300: rgba(0,0,0,0.87),
+        400: rgba(0,0,0,0.87),
+        500: white,
+        600: white,
+        700: white,
+        800: white,
+        900: white,
+    )
+));
+
+$custom-accent: mat.define-palette((
+    50: #fdfdf4,
+    100: #FCFCE1,  // --color-light-yellow
+    200: #f9f9c4,
+    300: #f6f6a7,
+    400: #f3f38a,
+    500: #f0f06d,
+    600: #edec50,
+    700: #e9e933,
+    800: #e6e616,
+    900: #c9c914,
+    contrast: (
+        50: rgba(0,0,0,0.87),
+        100: rgba(0,0,0,0.87),
+        200: rgba(0,0,0,0.87),
+        300: rgba(0,0,0,0.87),
+        400: rgba(0,0,0,0.87),
+        500: rgba(0,0,0,0.87),
+        600: rgba(0,0,0,0.87),
+        700: rgba(0,0,0,0.87),
+        800: white,
+        900: white,
+    )
+));
+
+$custom-warn: mat.define-palette((
+    50: #f7f6f4,
+    100: #3F361E,  // --color-dark-brown
+    200: #4f442b,
+    300: #5f5238,
+    400: #6f6045,
+    500: #7f6e52,
+    600: #8f7c5f,
+    700: #9f8a6c,
+    800: #af9879,
+    900: #bfa686,
+    contrast: (
+        50: rgba(0,0,0,0.87),
+        100: white,
+        200: white,
+        300: white,
+        400: white,
+        500: white,
+        600: white,
+        700: white,
+        800: white,
+        900: white,
+    )
+));
+
+// Crea el tema personalizado
+$custom-theme: mat.define-light-theme((
+    color: (
+        primary: $custom-primary,
+        accent: $custom-accent,
+        warn: $custom-warn,
+    ),
+    typography: mat.define-typography-config(
+        $font-family: 'Parkinsans, Poppins, sans-serif',
+    ),
+    density: 0,
+));
+
+// Aplica el tema a todos los componentes de Angular Material
+@include mat.all-component-themes($custom-theme);

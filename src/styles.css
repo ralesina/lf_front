@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Parkinsans:wght@300..800&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+@import '@angular/material/prebuilt-themes/deeppurple-amber.css';
+:root {
+  --color-dark-brown: #3F361E;
+  --color-light-yellow: #FCFCE1;
+  --color-tea-green: #C6EDC3;
+  --color-celadon: #A7DCA5;
+  --color-pistachio: #90CF8E;
+  font-family: 'Parkinsans','Poppins' sans-serif;
+}
+  
+html, body {
+  height: 100%;
+  margin: 0;
+}
+  /* Utilidades de Layout */
+  .flex {
+    display: flex;
+  }
+  
+  .flex-col {
+    flex-direction: column;
+  }
+  
+  .grid {
+    display: grid;
+  }
+  
+  .grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+    
+  .justify-between {
+    justify-content: space-between;
+  }
+  
+  .items-center {
+    align-items: center;
+  }
+  
+  /* Responsive utilities */
+  @media (max-width: 768px) {
+    .grid-cols-2 {
+      grid-template-columns: 1fr;
+    }
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem; /* Espaciado entre campos */
+  }
+  
+  mat-form-field {
+    width: 100%; /* Asegura que los campos llenen el ancho disponible */
+    margin-bottom: 1rem; /* Espaciado inferior */
+  }
+  
+  input, textarea {
+    font-size: 1.1rem; /* Aumenta el tamaño de la fuente */
+    padding: 0.75rem; /* Añade padding para inputs */
+  }
+  
+  button {
+    padding: 0.75rem 1.5rem; /* Botones más grandes y cómodos */
+    font-size: 1.1rem; /* Fuente más grande para botones */
+  }
+  /* Contenedor principal */
+  .container {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1rem;
+  }
+  
+  app-root {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-light-yellow);
+    color: var(--color-dark-brown);
+    font-family: 'PARKINSANS', sans-serif;
+  }
+  * {
+    box-sizing: border-box;
+  }

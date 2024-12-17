@@ -1,0 +1,4424 @@
+- ./app/app-routing.module.ts:
+import { NgModule } from '@angular/core';
+import { RouterModule, Routes } from '@angular/router';
+import { AuthGuard } from './core/guards/auth.guard';
+
+const routes: Routes = [
+  {
+    path: 'auth',
+    loadChildren: () => import('./features/auth/auth.module').then(m => m.AuthModule)
+  },
+  {
+    path: 'comercio',
+    loadChildren: () => import('./features/comercio/comercio.module').then(m => m.ComercioModule),
+    canActivate: [AuthGuard]
+  },
+  {
+    path: 'cliente',
+    loadChildren: () => import('./features/cliente/cliente.module').then(m => m.ClienteModule),
+    canActivate: [AuthGuard]
+  },
+  { path: '', redirectTo: 'auth/login', pathMatch: 'full' },
+  { path: '**', redirectTo: 'auth/login' }
+];
+
+@NgModule({
+  imports: [RouterModule.forRoot(routes)],
+  exports: [RouterModule]
+})
+export class AppRoutingModule { }
+- ./app/app.component.spec.ts:
+import { TestBed } from '@angular/core/testing';
+import { RouterTestingModule } from '@angular/router/testing';
+import { AppComponent } from './app.component';
+
+describe('AppComponent', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [
+        RouterTestingModule
+      ],
+      declarations: [
+        AppComponent
+      ],
+    }).compileComponents();
+  });
+
+  it('should create the app', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const app = fixture.componentInstance;
+    expect(app).toBeTruthy();
+  });
+
+  it(`should have as title 'lf_front'`, () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const app = fixture.componentInstance;
+    expect(app.title).toEqual('lf_front');
+  });
+
+  it('should render title', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.content span')?.textContent).toContain('lf_front app is running!');
+  });
+});
+
+- ./app/app.component.ts:
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-root',
+  template: `<router-outlet></router-outlet>`,
+  styles: []
+})
+export class AppComponent {
+  title = 'LocalFresh';
+}
+
+- ./app/app.module.ts:
+import { NgModule } from '@angular/core';
+import { BrowserModule } from '@angular/platform-browser';
+import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
+import { HttpClientModule, HTTP_INTERCEPTORS } from '@angular/common/http';
+import { AppRoutingModule } from './app-routing.module';
+import { AppComponent } from './app.component';
+import { JwtInterceptor } from './core/interceptors/jwt.interceptor';
+import { ErrorInterceptor } from './core/interceptors/error.interceptor';
+import { MatSnackBarModule } from '@angular/material/snack-bar';
+
+@NgModule({
+  declarations: [AppComponent],
+  imports: [
+    BrowserModule,
+    BrowserAnimationsModule,
+    HttpClientModule,
+    AppRoutingModule,
+    MatSnackBarModule
+  ],
+  providers: [
+    { provide: HTTP_INTERCEPTORS, useClass: JwtInterceptor, multi: true },
+    { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
+  ],
+  bootstrap: [AppComponent]
+})
+export class AppModule { }
+
+- ./app/core/base-api.service.ts:
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { ConfigService } from './services/config.service';
+import { Observable, throwError } from 'rxjs';
+import { timeout, catchError } from 'rxjs/operators';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class BaseApiService {
+  protected apiUrl: string;
+  protected timeout: number;
+
+  constructor(
+    protected http: HttpClient,
+    protected config: ConfigService
+  ) {
+    this.apiUrl = this.config.get('apiUrl');
+    this.timeout = this.config.get('apiTimeout');
+  }
+
+  protected getHeaders(): HttpHeaders {
+    let headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
+      'Origin': 'http://localhost:4200', // Asegurar el origen correcto
+    });
+
+    return headers;
+  }
+
+  protected get<T>(endpoint: string, params?: any): Observable<T> {
+    const options = {
+      headers: this.getHeaders(),
+      params: new HttpParams({ fromObject: params || {} })
+    };
+
+    return this.http.get<T>(`${this.apiUrl}/${endpoint}`, options)
+      .pipe(
+        timeout(this.timeout),
+        catchError(this.handleError)
+      );
+  }
+
+  protected post<T>(endpoint: string, data: any): Observable<T> {
+    return this.http.post<T>(`${this.apiUrl}/${endpoint}`, data, {
+      headers: this.getHeaders(),
+      withCredentials: true,
+    }).pipe(
+      timeout(this.timeout),
+      catchError(this.handleError)
+    );
+  }
+
+  protected handleError(error: any) {
+    console.error('Api Error:', error);
+    return throwError(() => error);
+  }
+}
+- ./app/core/guards/auth.guard.ts:
+import { Injectable } from '@angular/core';
+import { Router, CanActivate } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthGuard implements CanActivate {
+  constructor(
+    private authService: AuthService,
+    private router: Router
+  ) {}
+
+
+  canActivate(): boolean {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      this.router.navigate(['/auth/login']);
+      return false;
+    }
+    return true;
+  }
+}
+- ./app/core/guards/cliente.guard.ts:
+import { Injectable } from '@angular/core';
+import { Router, CanActivate } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+import { map } from 'rxjs/operators';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ClienteGuard implements CanActivate {
+  constructor(
+    private authService: AuthService,
+    private router: Router
+  ) {}
+
+  canActivate(): boolean {
+    const rol = this.authService.getCurrentUserRole();
+    if (rol !== 'cliente') {
+      this.router.navigate(['/auth/login']);
+      return false;
+    }
+    return true;
+  }
+}
+- ./app/core/guards/comercio.guard.ts:
+import { Injectable } from '@angular/core';
+import { Router, CanActivate } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+import { map } from 'rxjs/operators';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ComercioGuard implements CanActivate {
+  constructor(
+    private authService: AuthService,
+    private router: Router
+  ) {}
+
+  canActivate(): boolean {
+    const rol = this.authService.getCurrentUserRole();
+    if (rol !== 'comercio') {
+      this.router.navigate(['/auth/login']);
+      return false;
+    }
+    return true;
+  }
+}
+- ./app/core/interceptors/error.interceptor.ts:
+import { Injectable } from '@angular/core';
+import { HttpRequest, HttpHandler, HttpEvent, HttpInterceptor, HttpErrorResponse } from '@angular/common/http';
+import { Observable, throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { Router } from '@angular/router';
+import { SnackBarService } from '../services/snack-bar.service';
+
+@Injectable()
+export class ErrorInterceptor implements HttpInterceptor {
+  constructor(
+    private snackBarService: SnackBarService,
+    private router: Router
+  ) {}
+
+  intercept(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
+    return next.handle(request).pipe(
+      catchError((error: HttpErrorResponse) => {
+        let errorMessage = 'Ha ocurrido un error';
+
+        if (error.error instanceof ErrorEvent) {
+          errorMessage = error.error.message;
+        } else {
+          switch (error.status) {
+            case 401:
+              errorMessage = 'No autorizado';
+              this.router.navigate(['/auth/login']);
+              break;
+            case 403:
+              errorMessage = 'Acceso denegado';
+              break;
+            case 404:
+              errorMessage = 'Recurso no encontrado';
+              break;
+            case 422:
+              errorMessage = error.error.message || 'Error de validación';
+              break;
+            case 500:
+              errorMessage = 'Error interno del servidor';
+              break;
+            default:
+              errorMessage = error.error.message || 'Error de servidor';
+          }
+        }
+
+        this.snackBarService.showError(errorMessage);
+        return throwError(() => error);
+      })
+    );
+  }
+}
+- ./app/core/interceptors/jwt.interceptor.ts:
+import { Injectable, Injector } from '@angular/core';
+import { HttpRequest, HttpHandler, HttpEvent, HttpInterceptor, HttpErrorResponse } from '@angular/common/http';
+import { Observable, throwError, BehaviorSubject } from 'rxjs';
+import { catchError, filter, take, switchMap } from 'rxjs/operators';
+import { AuthService } from '../services/auth.service';
+
+@Injectable()
+export class JwtInterceptor implements HttpInterceptor {
+  private isRefreshing = false;
+  private refreshTokenSubject: BehaviorSubject<string | null> = new BehaviorSubject<string | null>(null);
+
+  constructor(private injector: Injector) {}
+
+  intercept(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
+    const authService = this.injector.get(AuthService);
+
+    if (request.url.includes('auth/login') || request.url.includes('auth/register')) {
+      return next.handle(request);
+    }
+
+    const token = authService.getToken();
+    if (token) {
+      request = this.addTokenToRequest(request, token);
+      request = request.clone({
+        setHeaders: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+    }
+
+    return next.handle(request).pipe(
+      catchError(error => {
+        if (error instanceof HttpErrorResponse && error.status === 401) {
+          
+          return this.handle401Error(request, next);
+        }
+        return throwError(() => error);
+      })
+    );
+  }
+
+  private addTokenToRequest(request: HttpRequest<any>, token: string) {
+    return request.clone({
+      setHeaders: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+  }
+
+  private handle401Error(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
+    const authService = this.injector.get(AuthService);
+
+    if (!this.isRefreshing) {
+      this.isRefreshing = true;
+      this.refreshTokenSubject.next(null);
+
+      return authService.refreshToken().pipe(
+        switchMap(response => {
+          this.isRefreshing = false;
+          this.refreshTokenSubject.next(response.data.data.access_token);
+          return next.handle(this.addTokenToRequest(request, response.data.data.access_token));
+        }),
+        catchError(error => {
+          this.isRefreshing = false;
+          authService.logout();
+          return throwError(() => error);
+        })
+      );
+    }
+
+    return this.refreshTokenSubject.pipe(
+      filter(token => token !== null),
+      take(1),
+      switchMap(token => next.handle(this.addTokenToRequest(request, token as string)))
+    );
+  }
+}
+- ./app/core/services/auth.service.ts:
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { BehaviorSubject, Observable } from 'rxjs';
+import { map, tap } from 'rxjs/operators';
+import { environment } from '../../../environments/environment';
+import { Usuario, AuthResponse } from '../../shared/models/usuario.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthService {
+  private currentUserSubject = new BehaviorSubject<Usuario | null>(null);
+  currentUser$ = this.currentUserSubject.asObservable();
+  private readonly API_URL = environment.apiUrl;
+  private currentComercioSubject = new BehaviorSubject<number | null>(null);
+  currentComercio$ = this.currentComercioSubject.asObservable();
+  constructor(private http: HttpClient) {
+      this.checkToken();
+      this.checkStoredData();
+
+  }
+
+  private checkToken() {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+          const user = JSON.parse(userData) as Usuario;
+          this.currentUserSubject.next(user);
+      }
+  }
+  login(credentials: {email: string; password: string}): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${this.API_URL}/auth/login`, credentials)
+      .pipe(
+        tap(response => {
+          if (response.success && response.data.data) { // Notar el data.data
+            localStorage.setItem('access_token', response.data.data.access_token);
+            localStorage.setItem('refresh_token', response.data.data.refresh_token);
+            localStorage.setItem('user', JSON.stringify(response.data.data.user));
+            this.currentUserSubject.next(response.data.data.user);
+          }
+        })
+      );
+  }
+  register(userData: any): Observable<AuthResponse> {
+    return this.http.post<AuthResponse>(`${this.API_URL}/auth/register`, userData)
+      .pipe(
+        tap(response => {
+          this.setSession(response.data);
+          this.currentUserSubject.next(response.data.data.user);
+        })
+      );
+  }
+  private checkStoredData() {
+    const user = this.getUserFromStorage();
+    if (user?.comercio_id) {
+      this.currentComercioSubject.next(user.comercio_id);
+    }
+  }
+
+  getCurrentComercioId(): number | null {
+    const user = this.getUserFromStorage();
+    return user?.comercio_id || null;
+  }
+
+  private getUserFromStorage() {
+    const userData = localStorage.getItem('user');
+    return userData ? JSON.parse(userData) : null;
+  }
+  getCurrentUserRole(): string | null {
+    const user = localStorage.getItem('user');
+    if (user) {
+      return JSON.parse(user).rol;
+    }
+    return null;
+  }
+  logout() {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('expires_at');
+    localStorage.removeItem('user');
+    this.currentUserSubject.next(null);
+  }
+
+  private setSession(authResult: any) {
+    localStorage.setItem('access_token', authResult.access_token);
+    localStorage.setItem('refresh_token', authResult.refresh_token);
+    localStorage.setItem('user', JSON.stringify(authResult.user));
+    
+    const expiresAt = new Date().getTime() + authResult.expires_in * 1000;
+    localStorage.setItem('expires_at', expiresAt.toString());
+  }
+
+  isLoggedIn(): boolean {
+    const expiration = localStorage.getItem('expires_at');
+    if (!expiration) return false;
+    return new Date().getTime() < parseInt(expiration);
+  }
+
+  getToken(): string | null {
+    return localStorage.getItem('access_token');
+  }
+
+  refreshToken(): Observable<AuthResponse> {
+    const refreshToken = localStorage.getItem('refresh_token');
+    return this.http.post<AuthResponse>(`${this.API_URL}/auth/refresh`, { refresh_token: refreshToken })
+      .pipe(
+        tap(response => this.setSession(response.data))
+      );
+  }
+  
+}
+- ./app/core/services/cart.service.ts:
+import { Injectable } from '@angular/core';
+import { BehaviorSubject } from 'rxjs';
+import { Producto } from '@shared/models/producto.model';
+
+
+@Injectable({
+  providedIn: 'root'
+})
+export class CartService {
+  private items: any[] = [];
+  private comercio: any = null;
+  private cartSubject = new BehaviorSubject<any[]>([]);
+
+  cart$ = this.cartSubject.asObservable();
+
+
+
+  addItem(item: any, comercio: any) {
+    if (this.comercio && this.comercio.id_comercio !== comercio.id_comercio) {
+      throw new Error('No puedes añadir productos de diferentes comercios. Finaliza o vacía tu pedido actual primero.');
+    }
+
+    const existingItem = this.items.find(i => i.id_producto === item.id_producto);
+    if (existingItem) {
+      if (existingItem.cantidad + item.cantidad > item.stock) {
+        throw new Error('No hay suficiente stock disponible');
+      }
+      existingItem.cantidad += item.cantidad;
+    } else {
+      if (item.cantidad > item.stock) {
+        throw new Error('No hay suficiente stock disponible');
+      }
+      this.items.push(item);
+    }
+
+    if (!this.comercio) {
+      this.comercio = comercio;
+    }
+
+    this.cartSubject.next([...this.items]);
+    this.saveToLocalStorage();
+  }
+
+  getItems(): any[] {
+    return [...this.items];
+  }
+
+  getComercio(): any {
+    return this.comercio;
+  }
+
+  clearCart() {
+    this.items = [];
+    this.comercio = null;
+    this.cartSubject.next([]);
+    localStorage.removeItem('cart');
+    localStorage.removeItem('comercio');
+  }
+
+  private saveToLocalStorage() {
+    try {
+      localStorage.setItem('cart', JSON.stringify(this.items));
+      localStorage.setItem('comercio', JSON.stringify(this.comercio));
+    } catch (error) {
+      console.error('Error saving to localStorage:', error);
+    }
+  }
+
+  loadFromLocalStorage() {
+    const cartItems = localStorage.getItem('cart');
+    const comercioData = localStorage.getItem('comercio');
+
+    if (cartItems) this.items = JSON.parse(cartItems);
+    if (comercioData) this.comercio = JSON.parse(comercioData);
+
+    this.cartSubject.next([...this.items]);
+  }
+}
+
+- ./app/core/services/cliente.service.ts:
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { BaseApiService } from '../base-api.service';
+import { BehaviorSubject, Observable, tap } from 'rxjs';
+import { environment } from '../../../environments/environment';
+import { Comercio } from '@shared/models/comercio.model';
+import { Pedido, PedidoResponse } from '@shared/models/pedido.model';
+
+export interface SearchResponse {
+  items: Comercio[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface SearchParams {
+  search: string;
+  category: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface Categoria {
+  id: number;
+  nombre: string;
+  descripcion?: string;
+}
+@Injectable({
+  providedIn: 'root'
+})
+export class ClienteService extends BaseApiService {
+
+  realizarPedido(pedidoData: any): Observable<any> {
+    return this.http.post(`${this.apiUrl}/clientes/pedido`, pedidoData); // Correct
+}
+getHistorialPedidos(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.apiUrl}/clientes/pedidos/historial`); // Correct
+}
+  consultarPedidos(idCliente: number): Observable<any> {
+    return this.http.get(`${environment.apiUrl}/clientes/pedidos/${idCliente}`);
+  }
+
+  getComercio(id: number): Observable<any> {
+    return this.http.get(`${this.apiUrl}/clientes/comercios/${id}`);
+  }
+
+  getProductosComercio(id: number): Observable<any[]> {
+    return this.http.get<any[]>(`${this.apiUrl}/clientes/comercios/${id}/productos`);
+  }
+
+  getComerciosDestacados(): Observable<Comercio[]> {
+    return this.http.get<Comercio[]>(`${environment.apiUrl}/clientes/comercios/destacados`);
+  }
+  getCategorias(): Observable<any[]> {
+    return this.http.get<any[]>(`${environment.apiUrl}/categorias`);
+  }
+  getPedidosActivos(): Observable<PedidoResponse[]> {
+    return this.http.get<PedidoResponse[]>(`${this.apiUrl}/clientes/pedidos/activos`, {
+      headers: this.getHeaders()
+    });
+  }
+  buscarComercios(params: {
+    search: string;
+    category: string;
+    page: number;
+    pageSize: number;
+  }): Observable<SearchResponse> {
+    const httpParams = new HttpParams()
+      .set('q', params.search)
+      .set('categoria', params.category)
+      .set('page', params.page.toString())
+      .set('limit', params.pageSize.toString());
+
+    return this.http.get<SearchResponse>(`${environment.apiUrl}/clientes/comercios/buscar`, { params: httpParams });
+  }
+  buscarComerciosCercanos(
+    latitud: number,
+    longitud: number,
+    radio: number
+  ): Observable<Comercio[]> {
+    const params = new HttpParams()
+      .set('latitud', latitud.toString())
+      .set('longitud', longitud.toString())
+      .set('radio', radio.toString());
+
+    return this.http.get<Comercio[]>(`${environment.apiUrl}/clientes/comercios/cercanos`, { params });
+  }
+  cancelarPedido(idPedido: number): Observable<any> {
+    return this.http.post(`${environment.apiUrl}/clientes/pedido/cancelar/${idPedido}`, {});
+  }
+
+
+}
+- ./app/core/services/comercio.service.ts:
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { catchError, map, Observable, throwError } from 'rxjs';
+import { environment } from '@env/environment';
+import { Comercio } from '@shared/models/comercio.model';
+import { Producto, Categoria, CategoriaResponse } from '@shared/models/producto.model';
+import { Pedido } from '@shared/models/pedido.model';
+import { BaseApiService } from '../base-api.service';
+import { AuthService } from './auth.service';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ComercioService extends BaseApiService {
+  protected apiUrl = environment.apiUrl + '/comercios';
+  authService: any;
+
+  getComercio(): Observable<Comercio> {
+    return this.http.get<Comercio>(`${this.apiUrl}/perfil`);
+  }
+
+  getPedidos(estado?: string): Observable<Pedido[]> {
+    let params = new HttpParams();
+    if (estado) {
+      params = params.set('estado', estado);
+    }
+    return this.http.get<Pedido[]>(`${this.apiUrl}/pedidos`, { params });
+  }
+  getPedidosPorEstado(estado: string): Observable<any[]> {
+    return this.http.get<any[]>(`${this.apiUrl}/pedidos`, {
+      params: { estado }
+    });
+  }
+  
+  getPedidosActivos(): Observable<number> {
+    return this.http.get<any>(`${this.apiUrl}/comercios/pedidos`)
+      .pipe(
+        map(response => response.data.filter(pedido => 
+          ['pendiente', 'preparando', 'enviado'].includes(pedido.estado)
+        ).length)
+      );
+  }
+  agregarProducto(data: any, file: File | null): Observable<any> {
+    const formData = new FormData();
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const userId = userData?.id_usuario;    
+    if (!userId) {
+      return throwError(() => new Error('Usuario no autenticado'));
+    }
+    
+    // Agregar el ID del comercio a los datos
+    formData.append('id_usuario', userId.toString());
+    
+    // Agregar el resto de datos del producto
+    Object.keys(data).forEach(key => {
+      formData.append(key, data[key]);
+    });
+    
+    // Agregar imagen si existe
+    if (file) {
+      formData.append('imagen', file);
+    }
+    
+    return this.http.post<any>(`${this.apiUrl}/comercios/productos`, formData)
+      .pipe(
+        catchError(error => {
+          console.error('Error al agregar producto:', error);
+          return throwError(() => error);
+        })
+      );
+  }
+
+  editarInventario(idProducto: number, data: any): Observable<any> {
+    return this.http.post(`${this.apiUrl}/comercios/inventario/${idProducto}`, data);
+  }
+
+  gestionarPedido(idPedido: number, data: any): Observable<any> {
+    return this.http.post(`${this.apiUrl}/comercios/pedido/gestionar/${idPedido}`, data);
+  }
+
+  actualizarEstadoPedido(idPedido: number, estado: string): Observable<any> {
+    return this.http.put(`${this.apiUrl}/pedidos/${idPedido}/estado`, { estado });
+  }
+
+  getProductos(): Observable<any[]> {
+    return this.http.get<any>(`${this.apiUrl}/comercios/productos`)
+      .pipe(
+        map(response => response.data.data),  // Extraer data.data
+        catchError(error => {
+          console.error('Error al obtener productos:', error);
+          return throwError(() => error);
+        })
+      );
+  }
+
+  getCategorias(): Observable<CategoriaResponse> {
+    return this.http.get<CategoriaResponse>(`${this.apiUrl}/categorias`);
+  }
+  editarProducto(idProducto: number, data: any, file: File | null): Observable<any> {
+    if (!data || typeof data !== 'object') {
+      return throwError(() => new Error('Los datos enviados son inválidos.'));
+    }
+  
+    const formData = new FormData();
+  
+    Object.keys(data).forEach(key => {
+      if (data[key] !== undefined && data[key] !== null) {
+        formData.append(key, data[key]);
+      }
+    });
+  
+    if (file) {
+      formData.append('imagen', file);
+    }
+  
+    return this.http.put(`${this.apiUrl}/comercios/productos/${idProducto}`, formData)
+      .pipe(
+        catchError(error => {
+          console.error('Error al editar producto:', error);
+          return throwError(() => error);
+        })
+      );
+  }
+
+  desactivarProducto(idProducto: number): Observable<any> {
+    return this.http.put(`${this.apiUrl}/comercios/productos/${idProducto}/estado`, {
+      estado: 'inactivo'
+    });
+  }
+}
+- ./app/core/services/config.service.ts:
+import { Injectable } from '@angular/core';
+import { environment } from '@env/environment';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ConfigService {
+  private config = {
+    apiUrl: environment.apiUrl,
+   // appUrl: environment.appUrl,
+    apiTimeout: 30000,
+    tokenKey: 'access_token',
+    refreshTokenKey: 'refresh_token',
+    userKey: 'user_data'
+  };
+
+  get(key: string): any {
+    return this.config[key];
+  }
+}
+- ./app/core/services/snack-bar.service.ts:
+import { Injectable } from '@angular/core';
+import { MatSnackBar } from '@angular/material/snack-bar';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class SnackBarService {
+  constructor(private snackBar: MatSnackBar) {}
+
+  showError(message: string) {
+    this.snackBar.open(message, 'Cerrar', {
+      duration: 5000,
+      horizontalPosition: 'end',
+      verticalPosition: 'top',
+      panelClass: ['error-snackbar']
+    });
+  }
+}
+
+- ./app/core/services/upload.service.ts:
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { environment } from '@env/environment';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class UploadService {
+  private apiUrl = environment.apiUrl + '/upload';
+
+  constructor(private http: HttpClient) {}
+
+  uploadImage(file: File, folder: string): Observable<{url: string}> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', folder);
+    
+    return this.http.post<{url: string}>(`${this.apiUrl}/image`, formData);
+  }
+
+  deleteImage(imageUrl: string): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/image`, { 
+      params: { url: imageUrl }
+    });
+  }
+}
+- ./app/features/auth/auth-routing.module.ts:
+import { NgModule } from '@angular/core';
+import { RouterModule, Routes } from '@angular/router';
+import { LoginComponent } from './components/login.component';
+import { RegisterComponent } from './components/register.component';
+
+const routes: Routes = [
+  { path: 'login', component: LoginComponent },
+  { path: 'register', component: RegisterComponent },
+  { path: '', redirectTo: 'login', pathMatch: 'full' }
+];
+
+@NgModule({
+  imports: [RouterModule.forChild(routes)],
+  exports: [RouterModule]
+})
+export class AuthRoutingModule { }
+- ./app/features/auth/auth.module.ts:
+import { NgModule } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { ReactiveFormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
+import { MaterialModule } from '@shared/material.module';
+import { LoginComponent } from './components/login.component';
+import { RegisterComponent } from './components/register.component';
+import { AuthRoutingModule } from './auth-routing.module';
+import { SharedModule } from '@shared/shared.module';
+
+@NgModule({
+  declarations: [LoginComponent, RegisterComponent],
+  imports: [
+    SharedModule,
+    CommonModule,
+    ReactiveFormsModule,
+    MaterialModule,
+    AuthRoutingModule
+  ]
+})
+export class AuthModule { }
+- ./app/features/auth/components/login.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { AuthService } from '@core/services/auth.service';
+import { finalize } from 'rxjs/operators';
+
+@Component({
+  selector: 'app-login',
+  template: `
+      <div class="login-container">
+        <div class="login-card">
+          <h1>LocalFresh</h1>
+          <form [formGroup]="loginForm" (ngSubmit)="onSubmit()">
+            <mat-form-field appearance="outline">
+              <mat-label>Email</mat-label>
+              <input matInput formControlName="email" type="email">
+            </mat-form-field>
+            
+            <mat-form-field appearance="outline">
+              <mat-label>Contraseña</mat-label>
+              <input matInput formControlName="password" type="password">
+            </mat-form-field>
+            
+            <button mat-raised-button color="primary" type="submit">
+              Iniciar Sesión
+            </button>
+          </form>
+          
+          <a routerLink="/auth/register">¿No tienes cuenta? Regístrate</a>
+        </div>
+      </div>
+    `,
+  styles: [`
+      .login-container {
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--color-light-yellow);
+      }
+      
+      .login-card {
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 400px;
+      }
+      
+      h1 {
+        color: var(--color-dark-brown);
+        text-align: center;
+        margin-bottom: 2rem;
+      }
+      
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      
+      button {
+        background-color: var(--color-pistachio) !important;
+        color: var(--color-dark-brown) !important;
+      }
+      
+      a {
+        display: block;
+        text-align: center;
+        margin-top: 1rem;
+        color: var(--color-dark-brown);
+        text-decoration: none;
+      }
+    `]
+})
+export class LoginComponent {
+  loginForm = this.fb.group({
+    email: ['', [Validators.required, Validators.email]],
+    password: ['', Validators.required]
+  });
+
+  constructor(
+    private fb: FormBuilder,
+    private authService: AuthService,
+    private router: Router
+  ) {}
+
+  onSubmit() {
+    if (this.loginForm.valid) {
+      const credentials = {
+        email: this.loginForm.value.email || '',
+        password: this.loginForm.value.password || ''
+      }
+      this.authService.login(credentials).subscribe({
+        next: (response) => {
+          if (response?.data?.data?.user?.rol) {
+            if (response.data.data.user.rol === 'comercio') {
+              this.router.navigate(['/comercio/dashboard']);
+            } else {
+              this.router.navigate(['/cliente/home']);
+            }
+          } else {
+            console.error('Respuesta inválida del servidor:', response);
+          }
+        },
+        error: (error) => {
+          console.error('Error en login:', error);
+        }
+      });
+    }
+  }
+}
+- ./app/features/auth/components/register.component.ts:
+import { Component } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { AuthService } from '@core/services/auth.service';
+import { MatSnackBar } from '@angular/material/snack-bar';
+
+@Component({
+  selector: 'app-register',
+  template: `
+    <div class="register-container">
+      <mat-card class="register-card">
+        <mat-card-header>
+          <mat-card-title>Registro</mat-card-title>
+        </mat-card-header>
+        
+        <mat-card-content>
+          <form [formGroup]="registerForm" (ngSubmit)="onSubmit()">
+            <mat-form-field appearance="outline">
+              <mat-label>Nombre</mat-label>
+              <input matInput formControlName="nombre">
+              <mat-error *ngIf="registerForm.get('nombre')?.hasError('required')">
+                El nombre es requerido
+              </mat-error>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Email</mat-label>
+              <input matInput type="email" formControlName="email">
+              <mat-error *ngIf="registerForm.get('email')?.hasError('required')">
+                El email es requerido
+              </mat-error>
+              <mat-error *ngIf="registerForm.get('email')?.hasError('email')">
+                Email inválido
+              </mat-error>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Contraseña</mat-label>
+              <input matInput type="password" formControlName="password">
+              <mat-error *ngIf="registerForm.get('password')?.hasError('required')">
+                La contraseña es requerida
+              </mat-error>
+              <mat-error *ngIf="registerForm.get('password')?.hasError('minlength')">
+                La contraseña debe tener al menos 6 caracteres
+              </mat-error>
+            </mat-form-field>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Dirección</mat-label>
+              <textarea matInput formControlName="direccion" rows="2"></textarea>
+              <mat-error *ngIf="registerForm.get('direccion')?.hasError('required')">
+                La dirección es requerida
+              </mat-error>
+            </mat-form-field>
+
+            <mat-radio-group formControlName="rol" class="rol-group">
+              <mat-radio-button value="cliente">Cliente</mat-radio-button>
+              <mat-radio-button value="comercio">Comercio</mat-radio-button>
+            </mat-radio-group>
+
+            <button mat-raised-button color="primary" 
+                    type="submit" 
+                    [disabled]="registerForm.invalid || loading">
+              <mat-spinner diameter="20" *ngIf="loading"></mat-spinner>
+              <span>Registrarse</span>
+            </button>
+          </form>
+        </mat-card-content>
+
+        <mat-card-actions>
+          <a mat-button routerLink="/auth/login">¿Ya tienes cuenta? Inicia sesión</a>
+        </mat-card-actions>
+      </mat-card>
+    </div>
+  `,
+  styles: [`
+    .register-container {
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--color-light-yellow);
+      padding: 1rem;
+    }
+
+    .register-card {
+      width: 100%;
+      max-width: 400px;
+    }
+
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .rol-group {
+      display: flex;
+      gap: 1rem;
+      margin: 0.5rem 0;
+    }
+
+    button[type="submit"] {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    mat-card-actions {
+      display: flex;
+      justify-content: center;
+      padding: 1rem;
+    }
+  `]
+})
+export class RegisterComponent {
+  registerForm: FormGroup;
+  loading = false;
+
+  constructor(
+    private fb: FormBuilder,
+    private authService: AuthService,
+    private router: Router,
+    private snackBar: MatSnackBar
+  ) {
+    this.registerForm = this.fb.group({
+      nombre: ['', Validators.required],
+      email: ['', [Validators.required, Validators.email]],
+      password: ['', [Validators.required, Validators.minLength(6)]],
+      direccion: ['', Validators.required],
+      rol: ['cliente', Validators.required]
+    });
+  }
+
+  onSubmit(): void {
+    if (this.registerForm.valid) {
+      this.loading = true;
+      this.authService.register(this.registerForm.value)
+        .subscribe({
+          next: () => {
+            this.router.navigate(['/auth/login']);
+            this.snackBar.open('Registro exitoso. Por favor, inicia sesión.', 'Cerrar', {
+              duration: 3000
+            });
+          },
+          error: (error) => {
+            this.loading = false;
+            this.snackBar.open(
+              error.message || 'Error al registrarse. Por favor, intenta nuevamente.',
+              'Cerrar',
+              { duration: 3000 }
+            );
+          },
+          complete: () => {
+            this.loading = false;
+          }
+        });
+    }
+  }
+}
+- ./app/features/cliente/cliente-routing.module.ts:
+import { NgModule } from '@angular/core';
+import { RouterModule, Routes } from '@angular/router';
+import { HomeClienteComponent } from './components/home.component';
+import { BuscarComerciosComponent } from './components/buscar-comercios.component';
+import { ComerciosCercanosComponent } from './components/comercios-cercanos.component';
+import { CheckoutComponent } from './components/checkout.component';
+import { HistorialPedidosComponent } from './components/historial-pedidos.component';
+import { ClienteGuard } from '@core/guards/cliente.guard';
+import { VerComercioComponent } from './components/ver-comercio.component';
+
+const routes: Routes = [
+  { path: 'home', component: HomeClienteComponent },
+  { path: 'comercios', component: BuscarComerciosComponent },
+  { path: 'comercios/cercanos', component: ComerciosCercanosComponent },
+  { path: 'pedidos/historial', component: HistorialPedidosComponent }
+
+];
+
+@NgModule({
+  imports: [RouterModule.forChild(routes)],
+  exports: [RouterModule]
+})
+export class ClienteRoutingModule { }
+- ./app/features/cliente/cliente.module.ts:
+import { NgModule } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterModule } from '@angular/router';
+import { ReactiveFormsModule } from '@angular/forms';
+import { MaterialModule } from '@shared/material.module';
+import { ClienteRoutingModule } from './cliente-routing.module';
+import { SharedModule } from '@shared/shared.module';
+import { MatStepperModule } from '@angular/material/stepper';
+import { MatCardModule } from '@angular/material/card';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatButtonModule } from '@angular/material/button';
+import { MatListModule } from '@angular/material/list';
+import { HomeClienteComponent } from './components/home.component';
+import { BuscarComerciosComponent } from './components/buscar-comercios.component';
+import { ComerciosCercanosComponent } from './components/comercios-cercanos.component';
+import { CheckoutComponent } from './components/checkout.component';
+import { HistorialPedidosComponent } from './components/historial-pedidos.component';
+
+@NgModule({
+  declarations: [
+    HomeClienteComponent,
+    BuscarComerciosComponent,
+    ComerciosCercanosComponent,
+    CheckoutComponent,
+    HistorialPedidosComponent
+  ],
+  imports: [
+    SharedModule,
+    MatStepperModule,
+    MatCardModule,
+    MatDividerModule,
+    MatButtonModule,
+    MatListModule,
+    CommonModule,
+    RouterModule,
+    ReactiveFormsModule,
+    MaterialModule,
+    ClienteRoutingModule
+  ]
+})
+export class ClienteModule { }
+- ./app/features/cliente/components/buscar-comercios.component.ts:
+
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { FormControl } from '@angular/forms';
+import { Router, ActivatedRoute } from '@angular/router';
+import { Observable, Subject, BehaviorSubject, combineLatest } from 'rxjs';
+import { debounceTime, takeUntil, tap, map, startWith } from 'rxjs/operators';
+import { ClienteService } from '@core/services/cliente.service';
+import { Comercio } from '@shared/models/comercio.model';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { PageEvent } from '@angular/material/paginator';
+
+interface SearchResponse {
+  items: Comercio[];
+  total: number;
+}
+
+@Component({
+  selector: 'app-buscar-comercios',
+  template: `
+    <app-nav-bar></app-nav-bar>
+    <div class="container">
+      <div class="search-container">
+        <mat-form-field appearance="outline" class="search-field">
+          <mat-label>Buscar comercios</mat-label>
+          <input matInput [formControl]="searchControl" placeholder="Nombre o tipo de comercio">
+          <mat-icon matSuffix>search</mat-icon>
+        </mat-form-field>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Categoría</mat-label>
+          <mat-select [formControl]="categoryControl">
+            <mat-option value="">Todas</mat-option>
+            <mat-option *ngFor="let cat of categories$ | async" [value]="cat.id">
+              {{cat.nombre}}
+            </mat-option>
+          </mat-select>
+        </mat-form-field>
+      </div>
+
+      <div class="filters">
+        <mat-chip-list>
+          <mat-chip *ngFor="let filter of activeFilters" 
+                   (removed)="removeFilter(filter)">
+            {{filter}}
+            <mat-icon matChipRemove>cancel</mat-icon>
+          </mat-chip>
+        </mat-chip-list>
+      </div>
+
+      <div class="comercios-grid" *ngIf="!(loading$ | async); else loadingTpl">
+        <mat-card *ngFor="let comercio of comercios$ | async" 
+                  class="comercio-card">
+          <mat-card-header>
+            <mat-card-title>{{comercio.nombre}}</mat-card-title>
+            <mat-card-subtitle>{{comercio.categoria}}</mat-card-subtitle>
+          </mat-card-header>
+
+          <mat-card-content>
+            <p class="address">
+              <mat-icon>location_on</mat-icon>
+              {{comercio.direccion}}
+            </p>
+            <p *ngIf="comercio.distancia" class="distance">
+              <mat-icon>near_me</mat-icon>
+              {{comercio.distancia | number:'1.1-1'}} km
+            </p>
+          </mat-card-content>
+
+          <mat-card-actions>
+            <button mat-button color="primary"
+                    [routerLink]="['/cliente/comercio', comercio.id_comercio]">
+              Ver Productos
+            </button>
+          </mat-card-actions>
+        </mat-card>
+      </div>
+
+      <ng-template #loadingTpl>
+        <div class="loading-container">
+          <mat-spinner></mat-spinner>
+        </div>
+      </ng-template>
+
+      <mat-paginator [length]="totalItems"
+                    [pageSize]="pageSize"
+                    [pageSizeOptions]="[12, 24, 48]"
+                    (page)="onPageChange($event)">
+      </mat-paginator>
+    </div>
+  `,
+  styles: [`
+    .container {
+      padding: 2rem;
+      background-color: var(--color-light-yellow);
+      min-height: calc(100vh - 64px);
+    }
+
+    .search-container {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .search-field {
+      flex: 1;
+    }
+
+    .filters {
+      margin-bottom: 1rem;
+    }
+
+    .comercios-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .comercio-card {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .address, .distance {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+      color: rgba(0, 0, 0, 0.7);
+    }
+
+    .loading-container {
+      display: flex;
+      justify-content: center;
+      padding: 2rem;
+    }
+  `]
+})
+export class BuscarComerciosComponent implements OnInit, OnDestroy {
+  searchControl = new FormControl<string>('');
+  categoryControl = new FormControl<string>('');
+  categories$: Observable<any[]>;
+  comercios$: Observable<Comercio[]> = new Observable<Comercio[]>();
+  loading$ = new BehaviorSubject<boolean>(false);
+  activeFilters: string[] = [];
+  totalItems = 0;
+  pageSize = 12;
+  private destroy$ = new Subject<void>();
+
+  constructor(
+    private clienteService: ClienteService,
+    private route: ActivatedRoute,
+    private router: Router
+  ) {
+    this.categories$ = this.clienteService.getCategorias();
+    this.setupSearch();
+  }
+
+  ngOnInit() {
+    this.route.queryParams.pipe(
+      takeUntil(this.destroy$)
+    ).subscribe(params => {
+      if (params['categoria']) {
+        this.categoryControl.setValue(params['categoria']);
+      }
+      if (params['q']) {
+        this.searchControl.setValue(params['q']);
+      }
+      this.loadComercios();
+    });
+  }
+
+  private setupSearch() {
+    combineLatest([
+      this.searchControl.valueChanges.pipe(startWith('')),
+      this.categoryControl.valueChanges.pipe(startWith(''))
+    ]).pipe(
+      debounceTime(300),
+      takeUntil(this.destroy$)
+    ).subscribe(([search, category]) => {
+      this.updateFilters(search || '', category || '');
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { q: search, categoria: category },
+        queryParamsHandling: 'merge'
+      });
+    });
+  }
+
+  private loadComercios() {
+    this.loading$.next(true);
+    this.comercios$ = this.clienteService.buscarComercios({
+      search: this.searchControl.value || '',
+      category: this.categoryControl.value || '',
+      page: 0,
+      pageSize: this.pageSize
+    }).pipe(
+      tap((response: SearchResponse) => {
+        this.totalItems = response.total;
+        this.loading$.next(false);
+      }),
+      map((response: SearchResponse) => response.items)
+    );
+  }
+
+  private updateFilters(search: string, category: string) {
+    this.activeFilters = [];
+    if (search) this.activeFilters.push(`Búsqueda: ${search}`);
+    if (category) this.activeFilters.push(`Categoría: ${category}`);
+  }
+
+  removeFilter(filter: string) {
+    if (filter.startsWith('Búsqueda')) {
+      this.searchControl.setValue('');
+    } else if (filter.startsWith('Categoría')) {
+      this.categoryControl.setValue('');
+    }
+  }
+
+  onPageChange(event: PageEvent) {
+    this.pageSize = event.pageSize;
+    this.loadComercios();
+  }
+
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+}
+- ./app/features/cliente/components/checkout.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { CartService } from '@core/services/cart.service';
+import { ClienteService } from '@core/services/cliente.service';
+import { finalize } from 'rxjs/operators';
+@Component({
+    selector: 'app-checkout',
+    template: `
+      <app-nav-bar></app-nav-bar>
+      <div class="container">
+        <div class="checkout-grid">
+          <mat-card class="order-details">
+            <mat-card-header>
+              <mat-card-title>Resumen del Pedido</mat-card-title>
+            </mat-card-header>
+            
+            <mat-card-content>
+              <div class="comercio-info">
+                <h3>{{comercio?.nombre}}</h3>
+                <p>{{comercio?.direccion}}</p>
+              </div>
+  
+              <mat-list>
+                <mat-list-item *ngFor="let item of items">
+                  <div class="item-detail">
+                    <span>{{item.cantidad}}x {{item.nombre_producto}}</span>
+                    <span>{{ item.precio * item.cantidad | currency }}</span>
+                  </div>
+                </mat-list-item>
+              </mat-list>
+  
+              <mat-divider></mat-divider>
+  
+              <div class="total-section">
+                <div class="subtotal">
+                  <span>Subtotal</span>
+                  <span>{{ calcularSubtotal() | currency }}</span>
+                </div>
+                <div class="total">
+                  <span>Total</span>
+                  <span>{{ calcularTotal() | currency }}</span>
+                </div>
+              </div>
+            </mat-card-content>
+          </mat-card>
+  
+          <mat-card class="delivery-form">
+            <mat-card-header>
+              <mat-card-title>Datos de Entrega</mat-card-title>
+            </mat-card-header>
+  
+            <mat-card-content>
+              <form [formGroup]="checkoutForm" (ngSubmit)="onSubmit()">
+                <mat-form-field appearance="outline">
+                  <mat-label>Dirección de entrega</mat-label>
+                  <textarea matInput formControlName="direccion_entrega" 
+                            rows="2"></textarea>
+                  <mat-error *ngIf="checkoutForm.get('direccion_entrega')?.hasError('required')">
+                    La dirección es requerida
+                  </mat-error>
+                </mat-form-field>
+  
+                <mat-form-field appearance="outline">
+                  <mat-label>Teléfono de contacto</mat-label>
+                  <input matInput formControlName="telefono_contacto">
+                  <mat-error *ngIf="checkoutForm.get('telefono_contacto')?.hasError('required')">
+                    El teléfono es requerido
+                  </mat-error>
+                </mat-form-field>
+  
+                <mat-form-field appearance="outline">
+                  <mat-label>Instrucciones especiales</mat-label>
+                  <textarea matInput formControlName="instrucciones" 
+                            rows="2"></textarea>
+                </mat-form-field>
+  
+                <mat-radio-group formControlName="metodo_pago" class="payment-methods">
+                  <mat-radio-button value="efectivo">Efectivo</mat-radio-button>
+                  <mat-radio-button value="tarjeta">Tarjeta</mat-radio-button>
+                </mat-radio-group>
+  
+                <button mat-raised-button color="primary" 
+                        type="submit"
+                        [disabled]="checkoutForm.invalid || loading">
+                  <mat-spinner diameter="20" *ngIf="loading"></mat-spinner>
+                  Confirmar Pedido
+                </button>
+              </form>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </div>
+    `,
+    styles: [`
+      .container {
+        padding: 2rem;
+        background-color: var(--color-light-yellow);
+        min-height: calc(100vh - 64px);
+      }
+  
+      .checkout-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+  
+      @media (max-width: 768px) {
+        .checkout-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+  
+      .item-detail {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        padding: 0.5rem 0;
+      }
+  
+      .total-section {
+        margin-top: 1rem;
+        font-size: 1.1em;
+  
+        > div {
+          display: flex;
+          justify-content: space-between;
+          margin: 0.5rem 0;
+        }
+  
+        .total {
+          font-weight: bold;
+          font-size: 1.2em;
+          margin-top: 1rem;
+        }
+      }
+  
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+  
+      .payment-methods {
+        display: flex;
+        gap: 1rem;
+        margin: 1rem 0;
+      }
+  
+      button[type="submit"] {
+        margin-top: 1rem;
+        height: 48px;
+      }
+    `]
+  })
+  export class CheckoutComponent implements OnInit {
+    checkoutForm: FormGroup;
+    items: any[] = [];
+    comercio: any;
+    loading = false;
+    costoEnvio = 5.00;
+  
+    constructor(
+      private fb: FormBuilder,
+      private cartService: CartService,
+      private clienteService: ClienteService,
+      private router: Router,
+      private snackBar: MatSnackBar
+    ) {
+      this.checkoutForm = this.fb.group({
+        direccion_entrega: ['', Validators.required],
+        telefono_contacto: ['', Validators.required],
+        instrucciones: [''],
+        metodo_pago: ['efectivo', Validators.required]
+      });
+    }
+  
+    ngOnInit() {
+      this.items = this.cartService.getItems();
+      this.comercio = this.cartService.getComercio();
+      if (!this.items.length) {
+        this.router.navigate(['/cliente/home']);
+      }
+    }
+  
+    calcularSubtotal(): number {
+      return this.items.reduce((sum, item) => 
+        sum + (item.precio * item.cantidad), 0);
+    }
+  
+    calcularTotal(): number {
+      return this.calcularSubtotal() + this.costoEnvio;
+    }
+  
+    onSubmit() {
+      if (this.checkoutForm.valid) {
+        this.loading = true;
+        const pedidoData = {
+          ...this.checkoutForm.value,
+          items: this.items.map(item => ({
+            id_producto: item.id_producto,
+            cantidad: item.cantidad
+          })),
+          id_comercio: this.comercio.id_comercio,
+          total: this.calcularTotal()
+        };
+  
+        this.clienteService.realizarPedido(pedidoData)
+          .pipe(finalize(() => this.loading = false))
+          .subscribe({
+            next: (response) => {
+              this.cartService.clearCart();
+              this.router.navigate(['/cliente/pedidos', response.data.id_pedido]);
+              this.snackBar.open('Pedido realizado con éxito', 'Cerrar', {
+                duration: 3000
+              });
+            },
+            error: (error) => {
+              this.snackBar.open(
+                error.message || 'Error al procesar el pedido', 
+                'Cerrar', 
+                { duration: 3000 }
+              );
+            }
+          });
+      }
+    }
+  }
+- ./app/features/cliente/components/comercios-cercanos.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { Observable } from 'rxjs';
+import { ClienteService } from '@core/services/cliente.service';
+import { Comercio } from '@shared/models/comercio.model';
+import { MatSnackBar } from '@angular/material/snack-bar';
+
+@Component({
+  selector: 'app-comercios-cercanos',
+  template: `
+    <app-nav-bar></app-nav-bar>
+    <div class="container">
+      <mat-card>
+        <mat-card-header>
+          <mat-card-title>Comercios Cercanos</mat-card-title>
+          <mat-card-subtitle>
+            Mostrando comercios en un radio de {{radio}}km
+          </mat-card-subtitle>
+        </mat-card-header>
+
+        <mat-card-content>
+          <div class="comercios-grid" *ngIf="!(loading); else loadingTpl">
+            <mat-card *ngFor="let comercio of comercios$ | async" class="comercio-card">
+              <mat-card-header>
+                <mat-card-title>{{comercio.nombre}}</mat-card-title>
+                <mat-card-subtitle>{{comercio.categoria}}</mat-card-subtitle>
+              </mat-card-header>
+
+              <mat-card-content>
+                <p class="address">
+                  <mat-icon>location_on</mat-icon>
+                  {{comercio.direccion}}
+                </p>
+                <p *ngIf="comercio.distancia" class="distance">
+                  <mat-icon>near_me</mat-icon>
+                  {{comercio.distancia | number:'1.1-1'}} km
+                </p>
+              </mat-card-content>
+
+              <mat-card-actions>
+                <button mat-button color="primary"
+                        [routerLink]="['/cliente/comercio', comercio.id_comercio]">
+                  Ver Productos
+                </button>
+              </mat-card-actions>
+            </mat-card>
+          </div>
+
+          <ng-template #loadingTpl>
+            <div class="loading-container">
+              <mat-spinner></mat-spinner>
+            </div>
+          </ng-template>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  `,
+  styles: [`
+    .container {
+      padding: 2rem;
+      background-color: var(--color-light-yellow);
+      min-height: calc(100vh - 64px);
+    }
+
+    .comercios-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .comercio-card {
+      height: 100%;
+    }
+
+    .address, .distance {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+      color: rgba(0, 0, 0, 0.7);
+    }
+
+    .loading-container {
+      display: flex;
+      justify-content: center;
+      padding: 2rem;
+    }
+  `]
+})
+export class ComerciosCercanosComponent implements OnInit {
+  comercios$!: Observable<Comercio[]>;
+  loading = false;
+  radio = 5; // Radio por defecto en kilómetros
+
+  constructor(
+    private clienteService: ClienteService,
+    private route: ActivatedRoute,
+    private snackBar: MatSnackBar
+  ) {}
+
+  ngOnInit(): void {
+    this.obtenerUbicacion();
+  }
+
+  private obtenerUbicacion() {
+    if (!navigator.geolocation) {
+      this.snackBar.open('La geolocalización no está disponible en tu navegador', 'Cerrar');
+      return;
+    }
+
+    this.loading = true;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        this.comercios$ = this.clienteService.buscarComerciosCercanos(latitude, longitude, this.radio);
+        this.loading = false;
+      },
+      (error) => {
+        this.loading = false;
+        this.snackBar.open('Error al obtener la ubicación. Por favor, habilita la geolocalización', 'Cerrar');
+      }
+    );
+  }
+}
+- ./app/features/cliente/components/historial-pedidos.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { Observable } from 'rxjs';
+import { MatDialog } from '@angular/material/dialog';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { ClienteService } from '@core/services/cliente.service';
+import { ConfirmDialogComponent } from '@shared/components/confirm-dialog.component';
+import { Pedido } from '@shared/models/pedido.model';
+
+@Component({
+  selector: 'app-historial-pedidos',
+  template: `
+   <app-nav-bar></app-nav-bar>
+   <div class="container">
+     <mat-card>
+       <mat-card-header>
+         <mat-card-title>Mis Pedidos</mat-card-title>
+       </mat-card-header>
+
+       <mat-card-content>
+         <mat-tab-group>
+           <mat-tab label="Activos">
+             <div class="pedidos-list">
+               <mat-card *ngFor="let pedido of pedidosActivos$ | async" 
+                        class="pedido-card">
+                 <mat-card-header>
+                   <mat-card-title>Pedido #{{pedido.id_pedido}}</mat-card-title>
+                   <mat-card-subtitle>
+                     <span [class]="'estado-' + pedido.estado">{{pedido.estado}}</span>
+                     <span class="fecha">{{pedido.fecha_pedido | date:'short'}}</span>
+                   </mat-card-subtitle>
+                 </mat-card-header>
+
+                 <mat-card-content>
+                   <div class="comercio-info">
+                     <h3>{{pedido.comercio_nombre}}</h3>
+                     <p class="direccion">{{pedido.direccion_entrega}}</p>
+                   </div>
+
+                   <mat-divider></mat-divider>
+
+                   <div class="items-list">
+                     <div *ngFor="let item of pedido.detalles" class="item">
+                       <span>{{item.cantidad}}x {{item.nombre_producto}}</span>
+                       <span>{{ item.precio_unitario * item.cantidad | currency }}</span>
+                     </div>
+                   </div>
+
+                   <div class="total">
+                     <span>Total</span>
+                     <span>{{ pedido.total | currency }}</span>
+                   </div>
+
+                   <div class="tracking" *ngIf="pedido.estado !== 'completado'">
+                     <mat-stepper [selectedIndex]="getStepIndex(pedido.estado)" linear>
+                       <mat-step completed>Pedido Recibido</mat-step>
+                       <mat-step [completed]="isStepCompleted(pedido.estado, 'preparando')">
+                         En Preparación
+                       </mat-step>
+                       <mat-step [completed]="isStepCompleted(pedido.estado, 'enviado')">
+                         En Camino
+                       </mat-step>
+                       <mat-step [completed]="isStepCompleted(pedido.estado, 'completado')">
+                         Entregado
+                       </mat-step>
+                     </mat-stepper>
+                   </div>
+                 </mat-card-content>
+
+                 <mat-card-actions *ngIf="pedido.estado === 'pendiente'">
+                   <button mat-button color="warn" (click)="onCancelar(pedido)">
+                     Cancelar Pedido
+                   </button>
+                 </mat-card-actions>
+               </mat-card>
+             </div>
+           </mat-tab>
+
+           <mat-tab label="Historial">
+             <div class="pedidos-list">
+               <mat-card *ngFor="let pedido of historialPedidos$ | async" 
+                        class="pedido-card">
+                 <mat-card-header>
+                   <mat-card-title>Pedido #{{pedido.id_pedido}}</mat-card-title>
+                   <mat-card-subtitle>
+                     <span [class]="'estado-' + pedido.estado">{{pedido.estado}}</span>
+                     <span class="fecha">{{pedido.fecha_pedido | date:'short'}}</span>
+                   </mat-card-subtitle>
+                 </mat-card-header>
+
+                 <mat-card-content>
+                   <div class="comercio-info">
+                     <h3>{{pedido.comercio_nombre}}</h3>
+                     <p class="direccion">{{pedido.direccion_entrega}}</p>
+                   </div>
+
+                   <mat-divider></mat-divider>
+
+                   <div class="items-list">
+                     <div *ngFor="let item of pedido.detalles" class="item">
+                       <span>{{item.cantidad}}x {{item.nombre_producto}}</span>
+                       <span>{{ item.precio_unitario * item.cantidad | currency }}</span>
+                     </div>
+                   </div>
+
+                   <div class="total">
+                     <span>Total</span>
+                     <span>{{ pedido.total | currency }}</span>
+                   </div>
+                 </mat-card-content>
+               </mat-card>
+             </div>
+           </mat-tab>
+         </mat-tab-group>
+       </mat-card-content>
+     </mat-card>
+   </div>
+ `,
+  styles: [`
+   .container {
+     padding: 2rem;
+     background-color: var(--color-light-yellow);
+     min-height: calc(100vh - 64px);
+   }
+
+   .pedidos-list {
+     display: grid;
+     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+     gap: 1rem;
+     padding: 1rem;
+   }
+
+   .pedido-card {
+     height: 100%;
+   }
+
+   .estado-pendiente { color: orange; }
+   .estado-preparando { color: blue; }
+   .estado-enviado { color: purple; }
+   .estado-completado { color: green; }
+   .estado-cancelado { color: red; }
+
+   .fecha {
+     margin-left: 1rem;
+     color: rgba(0,0,0,0.6);
+   }
+
+   .comercio-info {
+     margin: 1rem 0;
+     h3 {
+       font-size: 1.5rem;
+       margin: 0;
+       color: var(--color-dark-brown);
+     }
+   }
+
+   .items-list {
+     margin: 1rem 0;
+     
+    .item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+}
+   }
+
+   .total {
+     display: flex;
+     justify-content: space-between;
+     font-weight: bold;
+     margin-top: 1rem;
+     padding-top: 0.5rem;
+     border-top: 1px solid rgba(0,0,0,0.1);
+   }
+
+   .tracking {
+     margin-top: 1rem;
+   }
+
+   mat-divider {
+     margin: 1rem 0;
+   }
+ `]
+})
+export class HistorialPedidosComponent implements OnInit {
+  pedidosActivos$ = this.clienteService.getPedidosActivos();
+  historialPedidos$ = this.clienteService.getHistorialPedidos();
+
+  constructor(
+    private clienteService: ClienteService,
+    private dialog: MatDialog,
+    private snackBar: MatSnackBar
+  ) { }
+
+  ngOnInit() { }
+
+  getStepIndex(estado: string): number {
+    const estados = ['pendiente', 'preparando', 'enviado', 'completado'];
+    return Math.max(0, estados.indexOf(estado));
+  }
+
+  isStepCompleted(estadoActual: string, estado: string): boolean {
+    const estados = ['pendiente', 'preparando', 'enviado', 'completado'];
+    return estados.indexOf(estadoActual) >= estados.indexOf(estado);
+  }
+
+  onCancelar(pedido: Pedido) {
+    const dialogRef = this.dialog.open(ConfirmDialogComponent, {
+      data: {
+        title: 'Cancelar Pedido',
+        message: '¿Estás seguro de que deseas cancelar este pedido?'
+      }
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result) {
+        this.clienteService.cancelarPedido(pedido.id_pedido)
+          .subscribe({
+            next: () => {
+              this.snackBar.open('Pedido cancelado exitosamente', 'Cerrar', {
+                duration: 3000
+              });
+              // Recargar pedidos
+              this.pedidosActivos$ = this.clienteService.getPedidosActivos();
+              this.historialPedidos$ = this.clienteService.getHistorialPedidos();
+            },
+            error: (error) => {
+              this.snackBar.open(
+                error.message || 'Error al cancelar el pedido',
+                'Cerrar',
+                { duration: 3000 }
+              );
+            }
+          });
+      }
+    });
+  }
+}
+- ./app/features/cliente/components/home.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { FormControl } from '@angular/forms';
+import { Router } from '@angular/router';
+import { Observable } from 'rxjs';
+import { ClienteService } from '@core/services/cliente.service';
+import { Comercio } from '@shared/models/comercio.model';
+
+@Component({
+  selector: 'app-cliente-home',
+  template: `
+    <app-nav-bar></app-nav-bar>
+    <div class="home-container">
+      <div class="search-section">
+        <mat-form-field appearance="outline" class="search-field">
+          <mat-label>Buscar comercios o productos</mat-label>
+          <input matInput [formControl]="searchControl">
+          <mat-icon matSuffix>search</mat-icon>
+        </mat-form-field>
+        
+        <button mat-raised-button color="primary" (click)="buscarCercanos()">
+          <mat-icon>location_on</mat-icon>
+          Comercios Cercanos
+        </button>
+      </div>
+
+      <div class="categories-section">
+        <h2>Categorías</h2>
+        <div class="categories-grid">
+          <mat-card *ngFor="let category of categories" 
+                    class="category-card"
+                    (click)="onCategorySelect(category)">
+            <mat-icon class="category-icon">{{category.icon}}</mat-icon>
+            <span>{{category.name}}</span>
+          </mat-card>
+        </div>
+      </div>
+
+      <div class="featured-section">
+        <h2>Comercios Destacados</h2>
+        <div class="comercios-grid">
+          <mat-card *ngFor="let comercio of comerciosDestacados$ | async" 
+                    class="comercio-card">
+            <mat-card-header>
+              <mat-card-title>{{comercio.nombre}}</mat-card-title>
+              <mat-card-subtitle>{{comercio.categoria}}</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              <p class="address">
+                <mat-icon>location_on</mat-icon>
+                {{comercio.direccion}}
+              </p>
+              <p class="distance" *ngIf="comercio.distancia">
+                <mat-icon>navigation</mat-icon>
+                {{comercio.distancia}} km
+              </p>
+            </mat-card-content>
+            <mat-card-actions>
+              <button mat-button color="primary" 
+                      [routerLink]="['/cliente/comercio', comercio.id_comercio]">
+                Ver Productos
+              </button>
+            </mat-card-actions>
+          </mat-card>
+        </div>
+      </div>
+    </div>
+  `,
+  styles: [`
+    .home-container {
+      padding: 2rem;
+      background-color: var(--color-light-yellow);
+      min-height: calc(100vh - 64px);
+    }
+    
+    .search-section {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+    
+    .search-field {
+      flex: 1;
+    }
+    
+    .categories-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    
+    .category-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1rem;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    
+    .category-card:hover {
+      transform: translateY(-5px);
+    }
+
+    .category-icon {
+      font-size: 36px;
+      width: 36px;
+      height: 36px;
+      margin-bottom: 0.5rem;
+      color: var(--color-dark-brown);
+    }
+    
+    .comercios-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+    
+    .comercio-card {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .address, .distance {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+      color: rgba(0, 0, 0, 0.7);
+    }
+
+    h2 {
+      margin-bottom: 1rem;
+      color: var(--color-dark-brown);
+    }
+  `]
+})
+export class HomeClienteComponent implements OnInit {
+  searchControl = new FormControl('');
+  comerciosDestacados$: Observable<Comercio[]>;
+  
+  categories = [
+    { name: 'Panadería', icon: 'bakery_dining' },
+    { name: 'Carnicería', icon: 'lunch_dining' },
+    { name: 'Frutería', icon: 'nutrition' },
+    { name: 'Pescadería', icon: 'set_meal' }
+  ];
+
+  constructor(
+    private clienteService: ClienteService,
+    private router: Router
+  ) {
+    this.comerciosDestacados$ = this.clienteService.getComerciosDestacados();
+  }
+
+  ngOnInit(): void {}
+
+  buscarCercanos() {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition((position) => {
+        this.router.navigate(['/cliente/comercios-cercanos'], {
+          queryParams: {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          }
+        });
+      }, () => {
+        // En caso de error o denegación de permisos
+        this.router.navigate(['/cliente/comercios-cercanos']);
+      });
+    }
+  }
+
+  onCategorySelect(category: any) {
+    this.router.navigate(['/cliente/comercios'], {
+      queryParams: { categoria: category.name }
+    });
+  }
+}
+- ./app/features/cliente/components/ver-comercio.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { Observable } from 'rxjs';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { ClienteService } from '@core/services/cliente.service';
+import { CartService } from '@core/services/cart.service';
+
+@Component({
+  selector: 'app-ver-comercio',
+  template: `
+    <app-nav-bar></app-nav-bar>
+    <div class="container">
+      <mat-card *ngIf="comercio$ | async as comercio">
+        <mat-card-header>
+          <mat-card-title>{{comercio.nombre}}</mat-card-title>
+          <mat-card-subtitle>{{comercio.categoria}}</mat-card-subtitle>
+        </mat-card-header>
+        
+        <mat-card-content>
+          <p class="address">
+            <mat-icon>location_on</mat-icon>
+            {{comercio.direccion}}
+          </p>
+        </mat-card-content>
+      </mat-card>
+
+      <div class="products-section">
+        <h2>Productos</h2>
+        <div class="products-grid">
+          <mat-card *ngFor="let producto of productos$ | async" class="product-card">
+            <img *ngIf="producto.imagen_url" 
+                 [src]="producto.imagen_url" 
+                 [alt]="producto.nombre_producto"
+                 class="product-image">
+            
+            <mat-card-header>
+              <mat-card-title>{{producto.nombre_producto}}</mat-card-title>
+              <mat-card-subtitle>{{producto.precio | currency}}</mat-card-subtitle>
+            </mat-card-header>
+
+            <mat-card-content>
+              <p *ngIf="producto.descripcion">{{producto.descripcion}}</p>
+              <p class="stock" [class.low-stock]="producto.stock < 5">
+                Stock: {{producto.stock}} unidades
+              </p>
+            </mat-card-content>
+
+            <mat-card-actions>
+              <div class="quantity-selector">
+                <button mat-icon-button 
+                        (click)="decrementQuantity(producto)">
+                  <mat-icon>remove</mat-icon>
+                </button>
+                <span>{{getQuantity(producto)}}</span>
+                <button mat-icon-button 
+                        (click)="incrementQuantity(producto)"
+                        [disabled]="getQuantity(producto) >= producto.stock">
+                  <mat-icon>add</mat-icon>
+                </button>
+              </div>
+              <button mat-raised-button 
+                      color="primary"
+                      (click)="addToCart(producto)"
+                      [disabled]="getQuantity(producto) === 0 || getQuantity(producto) > producto.stock">
+                Agregar al carrito
+              </button>
+            </mat-card-actions>
+          </mat-card>
+        </div>
+      </div>
+
+      <div *ngIf="cartItems.length > 0" class="cart-summary">
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>Carrito</mat-card-title>
+          </mat-card-header>
+          <mat-card-content>
+            <mat-list>
+              <mat-list-item *ngFor="let item of cartItems">
+                <span>{{item.cantidad}}x {{item.nombre_producto}}</span>
+                <span class="spacer"></span>
+                <span>{{item.precio * item.cantidad | currency}}</span>
+              </mat-list-item>
+            </mat-list>
+            <mat-divider></mat-divider>
+            <div class="total">
+              <span>Total:</span>
+              <span>{{getTotal() | currency}}</span>
+            </div>
+          </mat-card-content>
+          <mat-card-actions>
+            <button mat-raised-button 
+                    color="primary" 
+                    [routerLink]="['/cliente/checkout']">
+              Realizar Pedido
+            </button>
+          </mat-card-actions>
+        </mat-card>
+      </div>
+    </div>
+  `,
+  styles: [`
+    .container {
+      padding: 2rem;
+      background-color: var(--color-light-yellow);
+      min-height: calc(100vh - 64px);
+    }
+
+    .products-section {
+      margin-top: 2rem;
+    }
+
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .product-card {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .product-image {
+      width: 100%;
+      height: 200px;
+      object-fit: cover;
+      border-top-left-radius: 4px;
+      border-top-right-radius: 4px;
+    }
+
+    .quantity-selector {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-right: 1rem;
+    }
+
+    .stock {
+      margin-top: 1rem;
+      font-weight: 500;
+      &.low-stock {
+        color: #f44336;
+      }
+    }
+
+    .cart-summary {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      width: 400px;
+      max-width: calc(100vw - 4rem);
+      
+      mat-card {
+        max-height: calc(100vh - 8rem);
+        overflow-y: auto;
+      }
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    .total {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 0;
+      font-weight: 500;
+      font-size: 1.1em;
+    }
+
+    mat-card-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem;
+    }
+
+    .address {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 1rem 0;
+      color: rgba(0, 0, 0, 0.7);
+    }
+  `]
+})
+export class VerComercioComponent implements OnInit {
+  comercio$!: Observable<any>;
+  productos$!: Observable<any[]>;
+  productQuantities: Map<number, number> = new Map();
+  cartItems: any[] = [];
+
+  constructor(
+    private route: ActivatedRoute,
+    private clienteService: ClienteService,
+    private cartService: CartService,
+    private snackBar: MatSnackBar
+  ) {}
+
+  ngOnInit() {
+    const comercioId = this.route.snapshot.params['id'];
+    this.comercio$ = this.clienteService.getComercio(comercioId);
+    this.productos$ = this.clienteService.getProductosComercio(comercioId);
+    this.cartItems = this.cartService.getItems();
+  }
+
+  getQuantity(producto: any): number {
+    return this.productQuantities.get(producto.id_producto) || 0;
+  }
+
+  incrementQuantity(producto: any) {
+    const currentQuantity = this.getQuantity(producto);
+    if (currentQuantity < producto.stock) {
+      this.productQuantities.set(producto.id_producto, currentQuantity + 1);
+    }
+  }
+
+  decrementQuantity(producto: any) {
+    const currentQuantity = this.getQuantity(producto);
+    if (currentQuantity > 0) {
+      this.productQuantities.set(producto.id_producto, currentQuantity - 1);
+    }
+  }
+
+  addToCart(producto: any) {
+    const quantity = this.getQuantity(producto);
+    if (quantity > 0) {
+      try {
+        this.cartService.addItem({
+          ...producto,
+          cantidad: quantity
+        }, this.comercio$);
+
+        this.productQuantities.set(producto.id_producto, 0);
+        this.cartItems = this.cartService.getItems();
+        
+        this.snackBar.open('Producto agregado al carrito', 'Cerrar', {
+          duration: 3000
+        });
+      } catch (error: any) {
+        this.snackBar.open(
+          error.message || 'Error al agregar al carrito',
+          'Cerrar',
+          { duration: 3000 }
+        );
+      }
+    }
+  }
+
+  getTotal(): number {
+    return this.cartItems.reduce((total, item) => 
+      total + (item.precio * item.cantidad), 0);
+  }
+}
+- ./app/features/comercio/comercio-routing.module.ts:
+import { NgModule } from '@angular/core';
+import { RouterModule, Routes } from '@angular/router';
+import { DashboardComercioComponent } from './components/dashboard.component';
+import { EditarInventarioComponent } from './components/editar-inventario.component';
+import { AgregarProductoComponent } from './components/agregar-producto.component';
+import { GestionPedidosComponent } from './components/gestion-pedidos.component';
+import { ComercioGuard } from '@core/guards/comercio.guard';
+import { ListarProductosComponent } from './components/listar-productos.component';
+
+const routes: Routes = [
+  { path: 'dashboard', component: DashboardComercioComponent, canActivate: [ComercioGuard] },
+  { path: 'inventario', component: EditarInventarioComponent, canActivate: [ComercioGuard] },
+  { path: 'productos', component: ListarProductosComponent, canActivate: [ComercioGuard] },
+  { path: 'productos/nuevo', component: AgregarProductoComponent, canActivate: [ComercioGuard] },
+  { path: 'pedidos', component: GestionPedidosComponent, canActivate: [ComercioGuard] },
+  { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
+];
+
+@NgModule({
+  imports: [RouterModule.forChild(routes)],
+  exports: [RouterModule]
+})
+export class ComercioRoutingModule { }
+- ./app/features/comercio/comercio.module.ts:
+import { NgModule } from '@angular/core';
+import { SharedModule } from '@shared/shared.module';
+import { ComercioRoutingModule } from './comercio-routing.module';
+import { CommonModule } from '@angular/common';
+import { ReactiveFormsModule } from '@angular/forms';
+import { DashboardComercioComponent } from './components/dashboard.component';
+import { EditarInventarioComponent } from './components/editar-inventario.component';
+import { AgregarProductoComponent } from './components/agregar-producto.component';
+import { EditarProductoDialogComponent } from './components/editar-producto-dialog.component';
+import { ListarProductosComponent } from './components/listar-productos.component';
+import { GestionPedidosComponent, PedidoCardComponent } from './components/gestion-pedidos.component';
+import { MatGridListModule } from '@angular/material/grid-list';
+import { MatTabsModule } from '@angular/material/tabs';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatCardModule } from '@angular/material/card';
+@NgModule({
+  declarations: [
+    DashboardComercioComponent,
+    EditarInventarioComponent,
+    AgregarProductoComponent,
+    GestionPedidosComponent,
+    PedidoCardComponent,
+    EditarProductoDialogComponent,
+    ListarProductosComponent
+  ],
+  imports: [
+    CommonModule,
+    SharedModule,
+    ReactiveFormsModule,
+    ComercioRoutingModule,
+    MatGridListModule,
+    MatTabsModule,
+    MatDividerModule,
+    MatCardModule
+  ],
+  exports: []
+})
+export class ComercioModule { }
+- ./app/features/comercio/components/agregar-producto.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { ComercioService } from '@core/services/comercio.service';
+import { Observable } from 'rxjs';
+import { finalize, map } from 'rxjs/operators';
+import { CategoriaResponse, Categoria } from '@shared/models/producto.model';
+
+@Component({
+  selector: 'app-agregar-producto',
+  template: `
+    <app-nav-bar></app-nav-bar>
+    <div class="container">
+      <mat-card class="form-card">
+        <mat-card-header>
+          <mat-card-title>Agregar Nuevo Producto</mat-card-title>
+        </mat-card-header>
+        
+        <mat-card-content>
+          <form [formGroup]="productoForm" (ngSubmit)="onSubmit()" class="product-form">
+            <div class="form-row">
+              <mat-form-field appearance="outline">
+                <mat-label>Nombre del Producto</mat-label>
+                <input matInput formControlName="nombre_producto">
+                <mat-error *ngIf="productoForm.get('nombre_producto')?.hasError('required')">
+                  El nombre es requerido
+                </mat-error>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Precio</mat-label>
+                <input matInput type="number" formControlName="precio">
+                <span matPrefix>$&nbsp;</span>
+                <mat-error *ngIf="productoForm.get('precio')?.hasError('required')">
+                  El precio es requerido
+                </mat-error>
+              </mat-form-field>
+            </div>
+
+            <mat-form-field appearance="outline">
+              <mat-label>Descripción</mat-label>
+              <textarea matInput formControlName="descripcion" rows="3"></textarea>
+            </mat-form-field>
+
+            <div class="form-row">
+              <mat-form-field appearance="outline">
+                <mat-label>Categoría</mat-label>
+                <mat-select formControlName="id_categoria">
+                  <mat-option *ngFor="let cat of categorias$ | async" [value]="cat.id">
+                    {{cat.nombre}}
+                  </mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Stock Inicial</mat-label>
+                <input matInput type="number" formControlName="stock">
+              </mat-form-field>
+            </div>
+            <div class="image-upload-section">
+              <button type="button" mat-stroked-button (click)="fileInput.click()" color="primary">
+                <mat-icon>cloud_upload</mat-icon>
+                Seleccionar Imagen
+              </button>
+              <input #fileInput type="file" hidden accept="image/*" (change)="onFileSelected($event)">
+              
+              <div *ngIf="selectedFileName" class="selected-file">
+                {{selectedFileName}}
+                <button type="button" mat-icon-button color="warn" (click)="removeSelectedFile()">
+                  <mat-icon>delete</mat-icon>
+                </button>
+              </div>
+
+              <div *ngIf="imagePreview" class="image-preview">
+                <img [src]="imagePreview" alt="Vista previa">
+              </div>
+            </div>
+
+            <div class="actions">
+              <button mat-button type="button" routerLink="/comercio/productos">
+                Cancelar
+              </button>
+              <button mat-raised-button color="primary" type="submit" [disabled]="productoForm.invalid || loading">
+                <mat-spinner diameter="20" *ngIf="loading"></mat-spinner>
+                Guardar Producto
+              </button>
+            </div>
+          </form>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  `,
+  styles: [`
+    .container {
+      padding: 2rem;
+      background-color: var(--color-light-yellow);
+      min-height: calc(100vh - 64px);
+    }
+
+    .form-card {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: white;
+    }
+
+    .product-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .image-upload-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      border: 2px dashed var(--color-celadon);
+      border-radius: 4px;
+    }
+
+    .selected-file {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .image-preview {
+      max-width: 300px;
+      margin-top: 1rem;
+
+      img {
+        width: 100%;
+        height: auto;
+        border-radius: 4px;
+      }
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+  `]
+})
+export class AgregarProductoComponent implements OnInit {
+  productoForm: FormGroup;
+  loading = false;
+  categorias$: Observable<Categoria[]>;
+  selectedFile: File | null = null;
+  selectedFileName: string | null = null;
+  imagePreview: string | null = null;
+
+  constructor(
+    private fb: FormBuilder,
+    private comercioService: ComercioService,
+    private snackBar: MatSnackBar,
+    private router: Router
+  ) {
+    this.productoForm = this.fb.group({
+      nombre_producto: ['', Validators.required],
+      descripcion: [''],
+      precio: ['', [Validators.required, Validators.min(0)]],
+      id_categoria: ['', Validators.required],
+      stock: [0, Validators.min(0)]
+    });
+
+    this.categorias$ = this.comercioService.getCategorias()
+      .pipe(
+        map((response: CategoriaResponse) => response.data.data)
+      );
+  }
+
+  ngOnInit(): void { }
+
+  onFileSelected(event: any) {
+    const file = event.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+      this.selectedFile = file;
+      this.selectedFileName = file.name;
+
+      // Crear preview
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.imagePreview = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      this.snackBar.open('Por favor, selecciona una imagen válida', 'Cerrar', {
+        duration: 3000
+      });
+    }
+  }
+
+  removeSelectedFile() {
+    this.selectedFile = null;
+    this.selectedFileName = null;
+    this.imagePreview = null;
+  }
+
+  onSubmit() {
+    if (this.productoForm.valid) {
+      this.loading = true;
+
+      this.comercioService
+        .agregarProducto(this.productoForm.value, this.selectedFile)
+        .pipe(finalize(() => this.loading = false))
+        .subscribe({
+          next: () => {
+            this.snackBar.open('Producto agregado exitosamente', 'Cerrar', {
+              duration: 3000
+            });
+            this.router.navigate(['/comercio/productos']);
+          },
+          error: (error) => {
+            this.snackBar.open(
+              error.message || 'Error al agregar producto',
+              'Cerrar',
+              { duration: 3000 }
+            );
+          }
+        });
+    }
+  }
+}
+- ./app/features/comercio/components/dashboard.component.ts:
+import { Component, OnInit } from '@angular/core';
+import { Router } from '@angular/router';
+import { Observable } from 'rxjs';
+import { ComercioService } from '@core/services/comercio.service';
+import { map } from 'rxjs/operators';
+
+@Component({
+  selector: 'app-dashboard',
+  template: `
+    <app-nav-bar></app-nav-bar>
+    <div class="container">
+      <h1 class="dashboard-title">Panel de Control</h1>
+
+      <mat-grid-list cols="2" rowHeight="2:1" gutterSize="16">
+        <mat-grid-tile>
+          <mat-card class="dashboard-card">
+            <mat-card-header>
+              <mat-card-title>Gestión de Productos</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <div class="card-actions">
+                <button mat-raised-button color="primary" routerLink="/comercio/productos/nuevo">
+                  <mat-icon>add</mat-icon>
+                  Nuevo Producto
+                </button>
+                <button mat-raised-button color="accent" routerLink="/comercio/productos">
+                  <mat-icon>edit</mat-icon>
+                  Editar Productos
+                </button>
+              </div>
+              <mat-icon class="dashboard-icon">inventory_2</mat-icon>
+            </mat-card-content>
+          </mat-card>
+        </mat-grid-tile>
+        
+        <mat-grid-tile>
+          <mat-card class="dashboard-card" routerLink="/comercio/pedidos">
+            <mat-card-header>
+              <mat-card-title>Pedidos Activos</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <mat-icon class="dashboard-icon">list_alt</mat-icon>
+              <span class="pedidos-count" *ngIf="pedidosActivos$ | async as count">
+                {{count}}
+              </span>
+              <p class="card-description" *ngIf="pedidosActivos$ | async as count">
+                {{ count === 0 ? 'No hay pedidos activos' : 
+                   count === 1 ? '1 pedido requiere atención' :
+                   count + ' pedidos requieren atención' }}
+              </p>
+            </mat-card-content>
+          </mat-card>
+        </mat-grid-tile>
+        
+        <mat-grid-tile>
+          <mat-card class="dashboard-card" routerLink="/comercio/inventario">
+            <mat-card-header>
+              <mat-card-title>Control de Inventario</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <mat-icon class="dashboard-icon">category</mat-icon>
+              <p class="card-description">Gestionar stock de productos</p>
+            </mat-card-content>
+          </mat-card>
+        </mat-grid-tile>
+        
+        <mat-grid-tile>
+          <mat-card class="dashboard-card">
+            <mat-card-header>
+              <mat-card-title>Resumen</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+              <mat-icon class="dashboard-icon">bar_chart</mat-icon>
+              <div class="stats-container">
+                <div class="stat-item">
+                  <span class="stat-label">Pedidos Hoy</span>
+                  <span class="stat-value">{{pedidosHoy$ | async}}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Productos</span>
+                  <span class="stat-value">{{totalProductos$ | async}}</span>
+                </div>
+              </div>
+            </mat-card-content>
+          </mat-card>
+        </mat-grid-tile>
+      </mat-grid-list>
+    </div>
+  `,
+  styles: [`
+    .container {
+      padding: 2rem;
+      background-color: var(--color-light-yellow);
+      min-height: calc(100vh - 64px);
+    }
+
+    .dashboard-title {
+      color: var(--color-dark-brown);
+      margin-bottom: 2rem;
+      font-size: 2rem;
+    }
+
+    .dashboard-card {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      transition: transform 0.2s;
+      padding: 1rem;
+    }
+
+    .dashboard-card:hover {
+      transform: translateY(-5px);
+    }
+
+    mat-card-content {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      flex: 1;
+      position: relative;
+      gap: 1rem;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .dashboard-icon {
+      font-size: 48px;
+      width: 48px;
+      height: 48px;
+      color: var(--color-dark-brown);
+    }
+
+    .pedidos-count {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background-color: var(--color-pistachio);
+      color: var(--color-dark-brown);
+      padding: 0.5rem;
+      border-radius: 50%;
+      min-width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+    }
+
+    .card-description {
+      text-align: center;
+      color: rgba(0, 0, 0, 0.7);
+      margin: 0;
+    }
+
+    .stats-container {
+      display: flex;
+      gap: 2rem;
+      margin-top: 1rem;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .stat-label {
+      font-size: 0.9rem;
+      color: rgba(0, 0, 0, 0.7);
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: var(--color-dark-brown);
+    }
+  `]
+})
+export class DashboardComercioComponent implements OnInit {
+  pedidosActivos$ = this.comercioService.getPedidosActivos();
+  pedidosHoy$ = this.comercioService.getPedidos();
+  totalProductos$ = this.comercioService.getProductos();
+
+  constructor(private comercioService: ComercioService) {}
+
+  ngOnInit(): void {}
+}
+- ./app/features/comercio/components/editar-inventario.component.ts:
+import { Component, OnInit, ViewChild, OnDestroy } from '@angular/core';
+import { MatTableDataSource } from '@angular/material/table';
+import { MatPaginator } from '@angular/material/paginator';
+import { MatSort } from '@angular/material/sort';
+import { FormControl } from '@angular/forms';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { ComercioService } from '@core/services/comercio.service';
+import { Subject } from 'rxjs';
+import { takeUntil, debounceTime } from 'rxjs/operators';
+import { MatDialog } from '@angular/material/dialog';
+import { EditarProductoDialogComponent } from './editar-producto-dialog.component';
+import { ConfirmDialogComponent } from '@shared/components/confirm-dialog.component';
+@Component({
+    selector: 'app-editar-inventario',
+    template: `
+      <app-nav-bar></app-nav-bar>
+      <div class="container">
+        <mat-card>
+          <mat-card-header class="header">
+            <mat-card-title>Gestión de Inventario</mat-card-title>
+            <mat-form-field appearance="outline" class="search-field">
+              <mat-label>Buscar Producto</mat-label>
+              <input matInput [formControl]="searchControl" placeholder="Nombre del producto">
+              <mat-icon matSuffix>search</mat-icon>
+            </mat-form-field>
+          </mat-card-header>
+  
+          <mat-card-content>
+            <table mat-table [dataSource]="dataSource" matSort class="inventory-table">
+              <ng-container matColumnDef="nombre_producto">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header>Producto</th>
+                <td mat-cell *matCellDef="let producto">{{producto.nombre_producto}}</td>
+              </ng-container>
+  
+              <ng-container matColumnDef="categoria">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header>Categoría</th>
+                <td mat-cell *matCellDef="let producto">{{producto.categoria}}</td>
+              </ng-container>
+  
+              <ng-container matColumnDef="precio">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header>Precio</th>
+                <td mat-cell *matCellDef="let producto">{{ producto.precio | currency }}</td>
+              </ng-container>
+  
+              <ng-container matColumnDef="stock">
+                <th mat-header-cell *matHeaderCellDef>Stock</th>
+                <td mat-cell *matCellDef="let producto">
+                  <mat-form-field appearance="outline" class="stock-field">
+                    <input matInput type="number" [formControl]="getStockControl(producto)"
+                           (blur)="updateStock(producto)">
+                  </mat-form-field>
+                </td>
+              </ng-container>
+  
+              <ng-container matColumnDef="acciones">
+                <th mat-header-cell *matHeaderCellDef>Acciones</th>
+                <td mat-cell *matCellDef="let producto">
+                  <button mat-icon-button [matMenuTriggerFor]="menu">
+                    <mat-icon>more_vert</mat-icon>
+                  </button>
+                  <mat-menu #menu="matMenu">
+                    <button mat-menu-item (click)="editarProducto(producto)">
+                      <mat-icon>edit</mat-icon>
+                      <span>Editar</span>
+                    </button>
+                    <button mat-menu-item (click)="desactivarProducto(producto)">
+                      <mat-icon>visibility_off</mat-icon>
+                      <span>Desactivar</span>
+                    </button>
+                  </mat-menu>
+                </td>
+              </ng-container>
+  
+              <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+            </table>
+  
+            <mat-paginator [pageSizeOptions]="[10, 25, 50]"
+                          showFirstLastButtons></mat-paginator>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    `,
+    styles: [`
+      .container {
+        padding: 2rem;
+        background-color: var(--color-light-yellow);
+        min-height: calc(100vh - 64px);
+      }
+  
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+  
+      .search-field {
+        width: 300px;
+      }
+  
+      .inventory-table {
+        width: 100%;
+      }
+  
+      .stock-field {
+        width: 100px;
+      }
+  
+      .mat-column-acciones {
+        width: 80px;
+        text-align: center;
+      }
+    `]
+  })
+  export class EditarInventarioComponent implements OnInit, OnDestroy {
+    displayedColumns = ['nombre_producto', 'categoria', 'precio', 'stock', 'acciones'];
+    dataSource: MatTableDataSource<any>;
+    searchControl = new FormControl('');
+    stockControls = new Map<number, FormControl>();
+    private destroy$ = new Subject<void>();
+  
+    @ViewChild(MatPaginator) paginator!: MatPaginator;
+    @ViewChild(MatSort) sort!: MatSort;
+  
+    constructor(
+      private comercioService: ComercioService,
+      private snackBar: MatSnackBar,
+      private dialog: MatDialog
+    ) {
+      this.dataSource = new MatTableDataSource();
+    }
+  
+    ngOnInit() {
+      this.loadProductos();
+      this.setupSearch();
+    }
+  
+    ngOnDestroy() {
+      this.destroy$.next();
+      this.destroy$.complete();
+    }
+  
+    private loadProductos() {
+      this.comercioService.getProductos().subscribe(productos => {
+        this.dataSource.data = productos;
+        productos.forEach(producto => {
+          this.stockControls.set(
+            producto.id_producto,
+            new FormControl(producto.stock)
+          );
+        });
+      });
+    }
+  
+    private setupSearch() {
+      this.searchControl.valueChanges.pipe(
+        debounceTime(300),
+        takeUntil(this.destroy$)
+      ).subscribe(value => {
+        this.dataSource.filter = value?.toLowerCase() || '';
+      });
+    }
+  
+    getStockControl(producto: any): FormControl {
+      return this.stockControls.get(producto.id_producto) || new FormControl(0);
+    }
+  
+    updateStock(producto: any) {
+      const control = this.stockControls.get(producto.id_producto);
+      if (!control) return;
+  
+      const newStock = control.value;
+      this.comercioService.editarInventario(producto.id_producto, newStock)
+        .subscribe({
+          next: () => {
+            this.snackBar.open('Stock actualizado', 'Cerrar', { duration: 3000 });
+          },
+          error: () => {
+            this.snackBar.open('Error al actualizar stock', 'Cerrar', { duration: 3000 });
+            control.setValue(producto.stock);
+          }
+        });
+    }
+    editarProducto(producto: any) {
+      const dialogRef = this.dialog.open(EditarProductoDialogComponent, {
+        width: '500px',
+        data: producto
+      });
+    
+      dialogRef.afterClosed().subscribe(result => {
+        if (result) {
+          this.comercioService.editarProducto(producto.id_producto, result, null)
+            .subscribe({
+              next: () => {
+                this.snackBar.open('Producto actualizado exitosamente', 'Cerrar', {
+                  duration: 3000
+                });
+                this.loadProductos();
+              },
+              error: (error) => {
+                this.snackBar.open(
+                  error.message || 'Error al actualizar el producto', 
+                  'Cerrar', 
+                  { duration: 3000 }
+                );
+              }
+            });
+        }
+      });
+    }
+    
+    desactivarProducto(producto: any) {
+      const dialogRef = this.dialog.open(ConfirmDialogComponent, {
+        data: {
+          title: 'Desactivar Producto',
+          message: `¿Está seguro que desea desactivar el producto "${producto.nombre_producto}"?`
+        }
+      });
+    
+      dialogRef.afterClosed().subscribe(result => {
+        if (result) {
+          this.comercioService.desactivarProducto(producto.id_producto)
+            .subscribe({
+              next: () => {
+                this.snackBar.open('Producto desactivado exitosamente', 'Cerrar', {
+                  duration: 3000
+                });
+                this.loadProductos();
+              },
+              error: (error) => {
+                this.snackBar.open(
+                  error.message || 'Error al desactivar el producto', 
+                  'Cerrar', 
+                  { duration: 3000 }
+                );
+              }
+            });
+        }
+      });
+    }
+  }
+- ./app/features/comercio/components/editar-producto-dialog.component.ts:
+import { Component } from '@angular/core';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { Inject } from '@angular/core';
+import { MatSelectModule } from '@angular/material/select';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatButtonModule } from '@angular/material/button';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { ReactiveFormsModule } from '@angular/forms';
+import { map, Observable } from 'rxjs';
+import { ComercioService } from '@core/services/comercio.service';
+import { Categoria } from '@shared/models/producto.model';
+@Component({
+  selector: 'app-editar-producto-dialog',
+  template: `
+    <h2 mat-dialog-title>Editar Producto</h2>
+    <form [formGroup]="productoForm" (ngSubmit)="onSubmit()">
+      <mat-dialog-content>
+        <div class="form-container">
+          <mat-form-field appearance="outline">
+            <mat-label>Nombre del Producto</mat-label>
+            <input matInput formControlName="nombre_producto">
+            <mat-error *ngIf="productoForm.get('nombre_producto')?.hasError('required')">
+              El nombre es requerido
+            </mat-error>
+            <mat-error *ngIf="productoForm.get('nombre_producto')?.hasError('minlength')">
+              El nombre debe tener al menos 3 caracteres
+            </mat-error>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Descripción</mat-label>
+            <textarea matInput formControlName="descripcion" rows="3"></textarea>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Precio</mat-label>
+            <input matInput type="number" formControlName="precio">
+            <span matPrefix>$&nbsp;</span>
+            <mat-error *ngIf="productoForm.get('precio')?.hasError('required')">
+              El precio es requerido
+            </mat-error>
+            <mat-error *ngIf="productoForm.get('precio')?.hasError('min')">
+              El precio debe ser mayor que 0
+            </mat-error>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Categoría</mat-label>
+            <mat-select formControlName="id_categoria">
+              <mat-option *ngFor="let cat of categorias$ | async" [value]="cat.id">
+                {{cat.nombre_categoria}}
+              </mat-option>
+            </mat-select>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>Stock</mat-label>
+            <input matInput type="number" formControlName="stock">
+            <mat-error *ngIf="productoForm.get('stock')?.hasError('min')">
+              El stock no puede ser negativo
+            </mat-error>
+          </mat-form-field>
+
+          <div class="image-section">
+            <div *ngIf="data.imagen_url || imagePreview" class="current-image">
+              <img [src]="imagePreview || data.imagen_url" alt="Imagen del producto">
+            </div>
+            <button type="button" mat-stroked-button (click)="fileInput.click()">
+              <mat-icon>cloud_upload</mat-icon>
+              Cambiar imagen
+            </button>
+            <input #fileInput type="file" hidden accept="image/*" (change)="onFileSelected($event)">
+            <span *ngIf="selectedFileName">{{selectedFileName}}</span>
+          </div>
+        </div>
+      </mat-dialog-content>
+
+      <mat-dialog-actions align="end">
+        <button mat-button [mat-dialog-close]>Cancelar</button>
+        <button mat-raised-button 
+                color="primary" 
+                type="submit"
+                [disabled]="productoForm.invalid || loading">
+          <mat-spinner diameter="20" *ngIf="loading"></mat-spinner>
+          Guardar Cambios
+        </button>
+      </mat-dialog-actions>
+    </form>
+  `,
+  styles: [`
+    .form-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-width: 400px;
+    }
+
+    .image-section {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .current-image {
+      width: 200px;
+      height: 200px;
+      border-radius: 4px;
+      overflow: hidden;
+      
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+    }
+  `]
+})
+export class EditarProductoDialogComponent {
+  productoForm: FormGroup;
+  loading = false;
+  categorias$: Observable<any[]>;
+  selectedFile: File | null = null;
+  selectedFileName: string | null = null;
+  imagePreview: string | null = null;
+
+  constructor(
+    public dialogRef: MatDialogRef<EditarProductoDialogComponent>,
+    @Inject(MAT_DIALOG_DATA) public data: any,
+    private fb: FormBuilder,
+    private comercioService: ComercioService
+  ) {
+    this.productoForm = this.fb.group({
+      nombre_producto: [data.nombre_producto, [Validators.required, Validators.minLength(3)]],
+      descripcion: [data.descripcion],
+      precio: [data.precio, [Validators.required, Validators.min(0.01)]],
+      id_categoria: [data.id_categoria, Validators.required],
+      stock: [data.stock, [Validators.required, Validators.min(0)]]
+    });
+
+    this.categorias$ = this.comercioService.getCategorias()
+      .pipe(map(response => response.data.data));
+  }
+
+  onFileSelected(event: any) {
+    const file = event.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+      this.selectedFile = file;
+      this.selectedFileName = file.name;
+      
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.imagePreview = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  onSubmit() {
+    if (this.productoForm.valid) {
+      const formData = new FormData();
+  
+      Object.keys(this.productoForm.value).forEach(key => {
+        const value = this.productoForm.value[key];
+        if (value !== undefined && value !== null) {
+          formData.append(key, value);
+        }
+      });
+  
+      if (this.selectedFile) {
+        formData.append('imagen', this.selectedFile);
+      }
+  
+      this.dialogRef.close(formData);
+    } else {
+      console.error('El formulario no es válido:', this.productoForm.value);
+    }
+  }
+  
+}
+- ./app/features/comercio/components/gestion-pedidos.component.ts:
+import { Component, OnInit, Input, Output, EventEmitter } from '@angular/core';
+import { Observable } from 'rxjs';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatDialog } from '@angular/material/dialog';
+import { ComercioService } from '@core/services/comercio.service';
+import { ConfirmDialogComponent } from '@shared/components/confirm-dialog.component';
+import { Pedido } from '@shared/models/pedido.model';
+@Component({
+    selector: 'app-gestion-pedidos',
+    template: `
+      <app-nav-bar></app-nav-bar>
+      <div class="container">
+        <mat-card>
+          <mat-card-header>
+            <mat-card-title>Gestión de Pedidos</mat-card-title>
+          </mat-card-header>
+          
+          <mat-card-content>
+            <mat-tab-group>
+              <mat-tab label="Pendientes ({{(pedidosPendientes$ | async)?.length || 0}})">
+                <div class="pedidos-list">
+                  <app-pedido-card
+                    *ngFor="let pedido of pedidosPendientes$ | async"
+                    [pedido]="pedido"
+                    (statusChange)="cambiarEstado($event)">
+                  </app-pedido-card>
+                </div>
+              </mat-tab>
+  
+              <mat-tab label="En Preparación">
+                <div class="pedidos-list">
+                  <app-pedido-card
+                    *ngFor="let pedido of pedidosEnPreparacion$ | async"
+                    [pedido]="pedido"
+                    (statusChange)="cambiarEstado($event)">
+                  </app-pedido-card>
+                </div>
+              </mat-tab>
+  
+              <mat-tab label="En Camino">
+                <div class="pedidos-list">
+                  <app-pedido-card
+                    *ngFor="let pedido of pedidosEnCamino$ | async"
+                    [pedido]="pedido"
+                    (statusChange)="cambiarEstado($event)">
+                  </app-pedido-card>
+                </div>
+              </mat-tab>
+  
+              <mat-tab label="Completados">
+                <div class="pedidos-list">
+                  <app-pedido-card
+                    *ngFor="let pedido of pedidosCompletados$ | async"
+                    [pedido]="pedido"
+                    [showActions]="false">
+                  </app-pedido-card>
+                </div>
+              </mat-tab>
+            </mat-tab-group>
+          </mat-card-content>
+        </mat-card>
+      </div>
+  
+    `,
+    styles: [`
+      .container {
+        padding: 2rem;
+        background-color: var(--color-light-yellow);
+        min-height: calc(100vh - 64px);
+      }
+  
+      .pedidos-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 1rem;
+        padding: 1rem;
+      }
+    `]
+  })
+  export class GestionPedidosComponent implements OnInit {
+    pedidosPendientes$: Observable<any[]> = new Observable();
+    pedidosEnPreparacion$: Observable<any[]> = new Observable();
+    pedidosEnCamino$: Observable<any[]> = new Observable();
+    pedidosCompletados$: Observable<any[]> = new Observable();
+  
+    ngOnInit(): void {
+      this.cargarPedidos();
+    }
+  
+    constructor(
+      private comercioService: ComercioService,
+      private snackBar: MatSnackBar
+    ) {
+      this.cargarPedidos();
+    }
+  
+    cargarPedidos() {
+      this.pedidosPendientes$ = this.comercioService.getPedidosPorEstado('pendiente');
+      this.pedidosEnPreparacion$ = this.comercioService.getPedidosPorEstado('preparando');
+      this.pedidosEnCamino$ = this.comercioService.getPedidosPorEstado('enviado');
+      this.pedidosCompletados$ = this.comercioService.getPedidosPorEstado('completado');
+    }
+  
+    cambiarEstado(event: { idPedido: number; nuevoEstado: string }) {
+      this.comercioService.actualizarEstadoPedido(event.idPedido, event.nuevoEstado)
+        .subscribe({
+          next: () => {
+            this.snackBar.open('Estado actualizado correctamente', 'Cerrar', {
+              duration: 3000
+            });
+            this.cargarPedidos();
+          },
+          error: (error) => {
+            this.snackBar.open(error.message || 'Error al actualizar estado', 'Cerrar', {
+              duration: 3000
+            });
+          }
+        });
+    }
+  }
+  
+  // Componente de tarjeta de pedido (usado en el componente anterior)
+  @Component({
+    selector: 'app-pedido-card',
+    template: `
+      <mat-card class="pedido-card">
+        <mat-card-header>
+          <mat-card-title>Pedido #{{pedido.id_pedido}}</mat-card-title>
+          <mat-card-subtitle>
+            {{pedido.fecha_pedido | date:'medium'}}
+          </mat-card-subtitle>
+        </mat-card-header>
+  
+        <mat-card-content>
+          <div class="cliente-info">
+            <p><strong>Cliente:</strong> {{pedido.cliente_nombre}}</p>
+            <p><strong>Dirección:</strong> {{pedido.direccion_entrega}}</p>
+            <p><strong>Teléfono:</strong> {{pedido.telefono_contacto}}</p>
+          </div>
+  
+          <mat-divider></mat-divider>
+  
+          <div class="productos-list">
+            <h3>Productos:</h3>
+            <div *ngFor="let detalle of pedido.detalles" class="producto-item">
+              <span>{{detalle.nombre_producto}}</span>
+              <span>x{{detalle.cantidad}}</span>
+            </div>
+          </div>
+  
+          <div class="total">
+            <strong>Total:</strong> {{ item.precio * item.cantidad | currency }}
+          </div>
+        </mat-card-content>
+  
+        <mat-card-actions *ngIf="showActions">
+          <ng-container [ngSwitch]="pedido.estado">
+            <button mat-button color="primary" 
+                    *ngSwitchCase="'pendiente'"
+                    (click)="updateStatus('preparando')">
+              Iniciar Preparación
+            </button>
+            
+            <button mat-button color="primary" 
+                    *ngSwitchCase="'preparando'"
+                    (click)="updateStatus('enviado')">
+              Marcar Como Enviado
+            </button>
+            
+            <button mat-button color="primary" 
+                    *ngSwitchCase="'enviado'"
+                    (click)="updateStatus('completado')">
+              Completar Pedido
+            </button>
+          </ng-container>
+        </mat-card-actions>
+      </mat-card>
+    `,
+    styles: [`
+      .pedido-card {
+        height: 100%;
+      }
+  
+      .cliente-info, .productos-list {
+        margin: 1rem 0;
+      }
+  
+      .producto-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+      }
+  
+      .total {
+        text-align: right;
+        font-size: 1.2em;
+        margin-top: 1rem;
+      }
+  
+      mat-divider {
+        margin: 1rem 0;
+      }
+    `]
+  })
+  export class PedidoCardComponent {
+    @Input() pedido!: Pedido;
+    @Input() showActions = true;
+    @Output() statusChange = new EventEmitter<{idPedido: number, nuevoEstado: string}>();
+  
+    updateStatus(nuevoEstado: string) {
+      this.statusChange.emit({
+        idPedido: this.pedido.id_pedido,
+        nuevoEstado
+      });
+    }
+  }
+- ./app/features/comercio/components/listar-productos.component.ts:
+import { Component, OnInit, ViewChild } from '@angular/core';
+import { MatPaginator } from '@angular/material/paginator';
+import { MatSort } from '@angular/material/sort';
+import { MatTableDataSource } from '@angular/material/table';
+import { ComercioService } from '@core/services/comercio.service';
+import { MatDialog } from '@angular/material/dialog';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { Router } from '@angular/router';
+import { ConfirmDialogComponent } from '@shared/components/confirm-dialog.component';
+import { EditarProductoDialogComponent } from './editar-producto-dialog.component';
+import { Producto } from '@shared/models/producto.model';
+
+@Component({
+  selector: 'app-listar-productos',
+  template: `
+    <app-nav-bar></app-nav-bar>
+    <div class="container">
+      <mat-card>
+        <mat-card-header>
+          <mat-card-title>Productos</mat-card-title>
+          <div class="header-actions">
+            <mat-form-field appearance="outline">
+              <mat-label>Buscar</mat-label>
+              <input matInput (keyup)="applyFilter($event)" placeholder="Nombre del producto" #input>
+              <mat-icon matSuffix>search</mat-icon>
+            </mat-form-field>
+            <button mat-raised-button color="primary" routerLink="/comercio/productos/nuevo">
+              <mat-icon>add</mat-icon>
+              Nuevo Producto
+            </button>
+          </div>
+        </mat-card-header>
+
+        <mat-card-content>
+          <div class="table-container">
+            <table mat-table [dataSource]="dataSource" matSort>
+              <!-- Imagen Column -->
+              <ng-container matColumnDef="imagen">
+                <th mat-header-cell *matHeaderCellDef> Imagen </th>
+                <td mat-cell *matCellDef="let producto">
+                  <img *ngIf="producto.imagen_url" [src]="producto.imagen_url" alt="Producto" class="producto-imagen">
+                  <mat-icon *ngIf="!producto.imagen_url">image_not_available</mat-icon>
+                </td>
+              </ng-container>
+
+              <!-- Nombre Column -->
+              <ng-container matColumnDef="nombre_producto">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Producto </th>
+                <td mat-cell *matCellDef="let producto"> {{producto.nombre_producto}} </td>
+              </ng-container>
+
+              <!-- Categoría Column -->
+              <ng-container matColumnDef="categoria">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Categoría </th>
+                <td mat-cell *matCellDef="let producto"> {{producto.categoria}} </td>
+              </ng-container>
+
+              <!-- Precio Column -->
+              <ng-container matColumnDef="precio">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Precio </th>
+                <td mat-cell *matCellDef="let producto"> {{producto.precio | currency}} </td>
+              </ng-container>
+
+              <!-- Stock Column -->
+              <ng-container matColumnDef="stock">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Stock </th>
+                <td mat-cell *matCellDef="let producto"> 
+                  <span [class.low-stock]="producto.stock < 10">{{producto.stock}}</span>
+                </td>
+              </ng-container>
+
+              <!-- Estado Column -->
+              <ng-container matColumnDef="estado">
+                <th mat-header-cell *matHeaderCellDef mat-sort-header> Estado </th>
+                <td mat-cell *matCellDef="let producto">
+                  <mat-chip-list>
+                    <mat-chip [color]="producto.estado === 'activo' ? 'primary' : 'warn'"
+                             [selected]="producto.estado === 'activo'">
+                      {{producto.estado}}
+                    </mat-chip>
+                  </mat-chip-list>
+                </td>
+              </ng-container>
+
+              <!-- Acciones Column -->
+              <ng-container matColumnDef="acciones">
+                <th mat-header-cell *matHeaderCellDef> Acciones </th>
+                <td mat-cell *matCellDef="let producto">
+                  <button mat-icon-button [matMenuTriggerFor]="menu" aria-label="Acciones">
+                    <mat-icon>more_vert</mat-icon>
+                  </button>
+                  <mat-menu #menu="matMenu">
+                    <button mat-menu-item (click)="editarProducto(producto)">
+                      <mat-icon>edit</mat-icon>
+                      <span>Editar</span>
+                    </button>
+                    <button mat-menu-item (click)="cambiarEstado(producto)">
+                      <mat-icon>{{producto.estado === 'activo' ? 'visibility_off' : 'visibility'}}</mat-icon>
+                      <span>{{producto.estado === 'activo' ? 'Desactivar' : 'Activar'}}</span>
+                    </button>
+                  </mat-menu>
+                </td>
+              </ng-container>
+
+              <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+              <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+
+              <!-- Row shown when there is no data -->
+              <tr class="mat-row" *matNoDataRow>
+                <td class="mat-cell" colspan="7">
+                  No se encontraron productos "{{input.value}}"
+                </td>
+              </tr>
+            </table>
+
+            <mat-paginator [pageSizeOptions]="[5, 10, 25]"
+                          showFirstLastButtons
+                          aria-label="Seleccionar página de productos">
+            </mat-paginator>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  `,
+  styles: [`
+    .container {
+      padding: 2rem;
+      background-color: var(--color-light-yellow);
+      min-height: calc(100vh - 64px);
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      margin: 1rem 0;
+    }
+
+    .table-container {
+      position: relative;
+      min-height: 200px;
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+    }
+
+    .producto-imagen {
+      width: 50px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+
+    .low-stock {
+      color: red;
+      font-weight: bold;
+    }
+
+    .mat-column-imagen {
+      width: 80px;
+      text-align: center;
+    }
+
+    .mat-column-acciones {
+      width: 60px;
+      text-align: center;
+    }
+
+    .mat-column-estado {
+      width: 100px;
+    }
+
+    .mat-mdc-row .mat-mdc-cell {
+      border-bottom: 1px solid transparent;
+      border-top: 1px solid transparent;
+    }
+
+    .mat-mdc-row:hover .mat-mdc-cell {
+      border-color: currentColor;
+      background-color: rgba(0, 0, 0, 0.04);
+    }
+  `]
+})
+export class ListarProductosComponent implements OnInit {
+  displayedColumns: string[] = ['imagen', 'nombre_producto', 'categoria', 'precio', 'stock', 'estado', 'acciones'];
+  dataSource: MatTableDataSource<Producto>;
+
+  @ViewChild(MatPaginator) paginator!: MatPaginator;
+  @ViewChild(MatSort) sort!: MatSort;
+
+  constructor(
+    private comercioService: ComercioService,
+    private dialog: MatDialog,
+    private snackBar: MatSnackBar
+  ) {
+    this.dataSource = new MatTableDataSource<Producto>();
+  }
+
+  ngOnInit(): void {
+    this.loadProductos();
+  }
+
+  ngAfterViewInit() {
+    this.dataSource.paginator = this.paginator;
+    this.dataSource.sort = this.sort;
+  }
+
+  loadProductos(): void {
+    this.comercioService.getProductos().subscribe({
+      next: (productos) => {
+        this.dataSource.data = productos;
+      },
+      error: (error) => {
+        this.snackBar.open('Error al cargar productos', 'Cerrar', {
+          duration: 3000
+        });
+      }
+    });
+  }
+
+  applyFilter(event: Event) {
+    const filterValue = (event.target as HTMLInputElement).value;
+    this.dataSource.filter = filterValue.trim().toLowerCase();
+
+    if (this.dataSource.paginator) {
+      this.dataSource.paginator.firstPage();
+    }
+  }
+  editarProducto(producto: any): void {
+    const dialogRef = this.dialog.open(EditarProductoDialogComponent, {
+      width: '500px',
+      data: producto
+    });
+  
+    dialogRef.afterClosed().subscribe(result => {
+      if (result) {
+        if (result instanceof FormData) {
+          this.comercioService.editarProducto(producto.id_producto, result, null)
+            .subscribe({
+              next: () => {
+                this.snackBar.open('Producto actualizado', 'Cerrar', { duration: 3000 });
+                this.loadProductos();
+              },
+              error: (error) => {
+                this.snackBar.open('Error al actualizar producto', 'Cerrar', { duration: 3000 });
+                console.error('Error al actualizar producto:', error);
+              }
+            });
+        } else {
+          console.error('Datos inválidos devueltos por el diálogo:', result);
+        }
+      }
+    });
+  }
+
+  cambiarEstado(producto: any): void {
+    const nuevoEstado = producto.estado === 'activo' ? 'inactivo' : 'activo';
+    const mensaje = producto.estado === 'activo' ? 
+      `¿Estás seguro de que quieres desactivar "${producto.nombre_producto}"?` :
+      `¿Estás seguro de que quieres activar "${producto.nombre_producto}"?`;
+
+    const dialogRef = this.dialog.open(ConfirmDialogComponent, {
+      data: {
+        title: `${producto.estado === 'activo' ? 'Desactivar' : 'Activar'} Producto`,
+        message: mensaje
+      }
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result) {
+        this.comercioService.desactivarProducto(producto.id_producto)
+          .subscribe({
+            next: () => {
+              this.snackBar.open('Estado actualizado', 'Cerrar', {
+                duration: 3000
+              });
+              this.loadProductos();
+            },
+            error: (error) => {
+              this.snackBar.open('Error al actualizar estado', 'Cerrar', {
+                duration: 3000
+              });
+            }
+          });
+      }
+    });
+  }
+}
+- ./app/shared/components/confirm-dialog.component.ts:
+import { Component, Inject } from '@angular/core';
+import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+
+@Component({
+  selector: 'app-confirm-dialog',
+  template: `
+    <h2 mat-dialog-title>{{data.title}}</h2>
+    <mat-dialog-content>{{data.message}}</mat-dialog-content>
+    <mat-dialog-actions align="end">
+      <button mat-button [mat-dialog-close]="false">Cancelar</button>
+      <button mat-raised-button color="warn" [mat-dialog-close]="true">
+        Confirmar
+      </button>
+    </mat-dialog-actions>
+  `
+})
+export class ConfirmDialogComponent {
+  constructor(@Inject(MAT_DIALOG_DATA) public data: {title: string; message: string}) {}
+}
+- ./app/shared/components/loading-spinner.component.ts:
+import { Component, Input } from '@angular/core';
+
+@Component({
+  selector: 'app-loading-spinner',
+  template: `
+    <div class="spinner-container" [class.overlay]="overlay">
+      <mat-spinner [diameter]="diameter"></mat-spinner>
+    </div>
+  `,
+  styles: [`
+    .spinner-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1rem;
+    }
+
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+    }
+  `]
+})
+export class LoadingSpinnerComponent {
+  @Input() diameter = 40;
+  @Input() overlay = false;
+}
+- ./app/shared/components/nav-bar.component.ts:
+import { Component } from '@angular/core';
+import { Router } from '@angular/router';
+import { AuthService } from '@core/services/auth.service';
+
+@Component({
+  selector: 'app-nav-bar',
+  template: `
+    <mat-toolbar color="primary">
+      <span>LocalFresh</span>
+      <span class="spacer"></span>
+      <ng-container *ngIf="authService.currentUser$ | async as user">
+        <button mat-button [matMenuTriggerFor]="menu">
+          {{user.nombre}}
+          <mat-icon>arrow_drop_down</mat-icon>
+        </button>
+        <mat-menu #menu="matMenu">
+          <button mat-menu-item (click)="logout()">
+            <mat-icon>exit_to_app</mat-icon>
+            <span>Cerrar Sesión</span>
+          </button>
+        </mat-menu>
+      </ng-container>
+    </mat-toolbar>
+  `,
+  styles: [`
+    .spacer {
+      flex: 1 1 auto;
+    }
+    mat-toolbar {
+      background-color: var(--color-dark-brown);
+      color: var(--color-light-yellow);
+    }
+  `]
+})
+export class NavBarComponent {
+  constructor(
+    public authService: AuthService,
+    private router: Router
+  ) {}
+
+  logout() {
+    this.authService.logout();
+    this.router.navigate(['/auth/login']);
+  }
+}
+- ./app/shared/directives/image-fallback.directive.ts:
+import { Directive, ElementRef, HostListener, Input } from '@angular/core';
+
+@Directive({
+  selector: '[appImageFallback]'
+})
+export class ImageFallbackDirective {
+  @Input() fallbackSrc = 'assets/images/placeholder.png';
+
+  @HostListener('error')
+  onError() {
+    const img = this.el.nativeElement;
+    img.src = this.fallbackSrc;
+  }
+
+  constructor(private el: ElementRef) {}
+}
+- ./app/shared/material.module.ts:
+import { NgModule } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatInputModule } from '@angular/material/input';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatSelectModule } from '@angular/material/select';
+import { MatIconModule } from '@angular/material/icon';
+import { MatTableModule } from '@angular/material/table';
+import { MatPaginatorModule } from '@angular/material/paginator';
+import { MatSortModule } from '@angular/material/sort';
+import { MatDialogModule } from '@angular/material/dialog';
+import { MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatListModule } from '@angular/material/list';
+import { MatTabsModule } from '@angular/material/tabs';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatGridListModule } from '@angular/material/grid-list';
+import { MatRadioModule } from '@angular/material/radio';
+
+const materialModules = [
+  MatButtonModule,
+  MatCardModule,
+  MatToolbarModule,
+  MatInputModule,
+  MatFormFieldModule,
+  MatSelectModule,
+  MatIconModule,
+  MatTableModule,
+  MatPaginatorModule,
+  MatSortModule,
+  MatDialogModule,
+  MatSnackBarModule,
+  MatMenuModule,
+  MatProgressSpinnerModule,
+  MatDividerModule,
+  MatListModule,
+  MatTabsModule,
+  MatChipsModule,
+  MatGridListModule,
+  MatRadioModule
+];
+
+@NgModule({
+  imports: materialModules,
+  exports: materialModules
+})
+export class MaterialModule { }
+- ./app/shared/models/comercio.model.ts:
+export interface Comercio {
+    id_comercio: number;
+    nombre: string;
+    direccion: string;
+    latitud: number;
+    longitud: number;
+    radio_cercania: number;
+    telefono?: string;
+    email?: string;
+    categoria?: string;
+    horario?: string;
+    estado?: string;
+    distancia?: number;
+}
+- ./app/shared/models/pedido.model.ts:
+export type EstadoPedido = 'pendiente' | 'confirmado' | 'en_preparacion' | 'en_camino' | 'entregado' | 'cancelado';
+export type MetodoPago = 'efectivo' | 'tarjeta';
+
+export interface Pedido {
+    id_pedido: number;
+    id_cliente: number;
+    id_comercio: number;
+    direccion_entrega: string;
+    telefono_contacto: string;
+    total: number;
+    estado: EstadoPedido;
+    fecha_pedido: Date;
+    instrucciones?: string;
+    metodo_pago: MetodoPago;
+    cliente_nombre?: string;
+    cliente_email?: string;
+    comercio_nombre?: string;
+    detalles: DetallePedido[];
+}
+
+export interface DetallePedido {
+    id_detalle?: number;
+    id_pedido?: number;
+    id_producto: number;
+    nombre_producto: string;
+    cantidad: number;
+    precio_unitario: number;
+    subtotal?: number;
+}
+
+export interface PedidoRequest {
+    direccion_entrega: string;
+    telefono_contacto: string;
+    instrucciones?: string;
+    metodo_pago: MetodoPago;
+    items: {
+        id_producto: number;
+        cantidad: number;
+    }[];
+}
+
+export interface PedidoResponse {
+    success: boolean;
+    data: Pedido;
+    message?: string;
+}
+- ./app/shared/models/producto.model.ts:
+export interface Producto {
+  id_producto: string;
+  id_comercio: string;
+  nombre_producto: string;
+  descripcion: string | null;
+  imagen_url: string | null;
+  estado: 'activo' | 'inactivo';
+  precio: string;
+  categoria: string;
+  fecha_creacion: string;
+  id_categoria: string;
+  stock: string;
+  nombre_categoria: string;
+  }
+  export interface CategoriaResponse {
+    success: boolean;
+    data: {
+      success: boolean;
+      data: Categoria[];
+    };
+    }
+    export interface ProductoResponse {
+      success: boolean;
+      data: {
+        success: boolean;
+        data: Producto[];
+      };
+      }
+  export interface Categoria {
+    id: number;
+    nombre_categoria: string;
+  }
+- ./app/shared/models/usuario.model.ts:
+export interface Usuario {
+  id_usuario: number;
+  nombre: string;
+  email: string;
+  rol: 'comercio' | 'cliente' | 'admin';
+  status: 'active' | 'inactive' | 'blocked';
+}
+
+export interface AuthResponse {
+  success: boolean;
+  data: {
+    data: {
+      user: {
+        id_usuario: number;
+        nombre: string;
+        email: string;
+        rol: 'comercio' | 'cliente' | 'admin';
+        status: 'active' | 'inactive' | 'blocked';
+      };
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+    };
+    message: string;
+    success: boolean;
+  }
+}
+- ./app/shared/pipes/currency-format.pipe.ts:
+import { Pipe, PipeTransform } from '@angular/core';
+
+@Pipe({
+  name: 'currencyFormat'
+})
+export class CurrencyFormatPipe implements PipeTransform {
+  transform(value: number): string {
+    return `$${value.toFixed(2)}`;
+  }
+}
+- ./app/shared/shared.module.ts:
+import { NgModule } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { RouterModule } from '@angular/router';
+import { ReactiveFormsModule } from '@angular/forms';
+import { MaterialModule } from './material.module';
+import { NavBarComponent } from './components/nav-bar.component';
+import { ConfirmDialogComponent } from './components/confirm-dialog.component';
+import { LoadingSpinnerComponent } from './components/loading-spinner.component';
+
+@NgModule({
+  declarations: [
+    NavBarComponent,
+    ConfirmDialogComponent,
+    LoadingSpinnerComponent
+  ],
+  imports: [
+    CommonModule,
+    RouterModule,
+    ReactiveFormsModule,
+    MaterialModule
+  ],
+  exports: [
+    CommonModule, 
+    RouterModule,
+    ReactiveFormsModule,
+    MaterialModule,
+    NavBarComponent,
+    ConfirmDialogComponent,
+    LoadingSpinnerComponent
+  ]
+})
+export class SharedModule { }
+- ./app/shared/utils/transformers.ts:
+import { Pedido } from "@shared/models/pedido.model";
+import { Producto } from "@shared/models/producto.model";
+
+export class DataTransformers {
+    static transformPedido(data: any): Pedido {
+        return {
+            ...data,
+            fecha_pedido: new Date(data.fecha_pedido),
+            total: parseFloat(data.total),
+            detalles: data.detalles?.map(detalle => ({
+                ...detalle,
+                precio_unitario: parseFloat(detalle.precio_unitario),
+                subtotal: parseFloat(detalle.subtotal)
+            }))
+        };
+    }
+
+    static transformProducto(data: any): Producto {
+        return {
+            ...data,
+            precio: parseFloat(data.precio),
+            fecha_creacion: new Date(data.fecha_creacion),
+            stock: parseInt(data.stock, 10)
+        };
+    }
+}
+- ./app/shared/utils/validators.ts:
+import { AbstractControl, ValidationErrors } from '@angular/forms';
+
+export class CustomValidators {
+  static validPhone(control: AbstractControl): ValidationErrors | null {
+    const valid = /^\d{9}$/.test(control.value);
+    return valid ? null : { invalidPhone: true };
+  }
+}
+- ./environments/environment.prod.ts:
+export const environment = {
+  production: true,
+  apiUrl: 'https://api.localfresh.com',
+  tokenName: 'access_token',
+  refreshTokenName: 'refresh_token'
+};
+
+- ./environments/environment.ts:
+// This file can be replaced during build by using the `fileReplacements` array.
+// `ng build` replaces `environment.ts` with `environment.prod.ts`.
+// The list of file replacements can be found in `angular.json`.
+
+export const environment = {
+  production: false,
+  apiUrl: 'http://localhost:8080/api',
+  tokenName: 'access_token',
+  refreshTokenName: 'refresh_token'
+};
+/*
+ * For easier debugging in development mode, you can import the following file
+ * to ignore zone related error stack frames such as `zone.run`, `zoneDelegate.invokeTask`.
+ *
+ * This import should be commented out in production mode because it will have a negative impact
+ * on performance if an error is thrown.
+ */
+// import 'zone.js/plugins/zone-error';  // Included with Angular CLI.
+
+- ./main.ts:
+import { enableProdMode } from '@angular/core';
+import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
+import { AppModule } from './app/app.module';
+import { environment } from './environments/environment';
+
+if (environment.production) {
+  enableProdMode();
+}
+
+platformBrowserDynamic()
+  .bootstrapModule(AppModule)
+  .catch(err => console.error(err));
+- ./polyfills.ts:
+/**
+ * This file includes polyfills needed by Angular and is loaded before the app.
+ * You can add your own extra polyfills to this file.
+ *
+ * This file is divided into 2 sections:
+ *   1. Browser polyfills. These are applied before loading ZoneJS and are sorted by browsers.
+ *   2. Application imports. Files imported after ZoneJS that should be loaded before your main
+ *      file.
+ *
+ * The current setup is for so-called "evergreen" browsers; the last versions of browsers that
+ * automatically update themselves. This includes recent versions of Safari, Chrome (including
+ * Opera), Edge on the desktop, and iOS and Chrome on mobile.
+ *
+ * Learn more in https://angular.io/guide/browser-support
+ */
+
+/***************************************************************************************************
+ * BROWSER POLYFILLS
+ */
+
+/**
+ * By default, zone.js will patch all possible macroTask and DomEvents
+ * user can disable parts of macroTask/DomEvents patch by setting following flags
+ * because those flags need to be set before `zone.js` being loaded, and webpack
+ * will put import in the top of bundle, so user need to create a separate file
+ * in this directory (for example: zone-flags.ts), and put the following flags
+ * into that file, and then add the following code before importing zone.js.
+ * import './zone-flags';
+ *
+ * The flags allowed in zone-flags.ts are listed here.
+ *
+ * The following flags will work for all browsers.
+ *
+ * (window as any).__Zone_disable_requestAnimationFrame = true; // disable patch requestAnimationFrame
+ * (window as any).__Zone_disable_on_property = true; // disable patch onProperty such as onclick
+ * (window as any).__zone_symbol__UNPATCHED_EVENTS = ['scroll', 'mousemove']; // disable patch specified eventNames
+ *
+ *  in IE/Edge developer tools, the addEventListener will also be wrapped by zone.js
+ *  with the following flag, it will bypass `zone.js` patch for IE/Edge
+ *
+ *  (window as any).__Zone_enable_cross_context_check = true;
+ *
+ */
+
+/***************************************************************************************************
+ * Zone JS is required by default for Angular itself.
+ */
+import 'zone.js';  // Included with Angular CLI.
+
+
+/***************************************************************************************************
+ * APPLICATION IMPORTS
+ */
+
+- ./test.ts:
+// This file is required by karma.conf.js and loads recursively all the .spec and framework files
+
+import 'zone.js/testing';
+import { getTestBed } from '@angular/core/testing';
+import {
+  BrowserDynamicTestingModule,
+  platformBrowserDynamicTesting
+} from '@angular/platform-browser-dynamic/testing';
+
+declare const require: {
+  context(path: string, deep?: boolean, filter?: RegExp): {
+    <T>(id: string): T;
+    keys(): string[];
+  };
+};
+
+// First, initialize the Angular testing environment.
+getTestBed().initTestEnvironment(
+  BrowserDynamicTestingModule,
+  platformBrowserDynamicTesting(),
+);
+
+// Then we find all the tests.
+const context = require.context('./', true, /\.spec\.ts$/);
+// And load the modules.
+context.keys().forEach(context);
+

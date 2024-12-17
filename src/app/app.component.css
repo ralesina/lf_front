@@ -1,0 +1,7 @@
+.button {
+    background-color: var(--color-pistachio);
+    color: var(--color-dark-brown);
+  }
+  h1, h2, h3, p, a {
+    color: var(--color-dark-brown);
+  }
